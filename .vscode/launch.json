@@ -16,6 +16,9 @@
 				"${workspaceFolder}/out/**/*.js"
 			],
 			"preLaunchTask": "${defaultBuildTask}",
+			"env": {
+				"MYREF": "89b4b38d060c0880229e8b4495c8587512b1c906"
+			}
 		}
 	]
 }

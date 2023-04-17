@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { GitExtension, Repository } from './git';
-
-const vscodeVariables = require('vscode-variables');
+import * as vscodeVariables from './vscode-variables';
 
 export const EXTENTION_NAME = 'gitbranchquickdiff';
 
@@ -152,7 +151,7 @@ async function changeRef() {
 function provideOriginalResource(this: vscode.QuickDiffProvider, uri: vscode.Uri, token: vscode.CancellationToken): vscode.ProviderResult<vscode.Uri> {
     const gbqdEnabled = vscode.workspace.getConfiguration(EXTENTION_NAME).get(ENABLED_CONFIG_NAME);
     if (gbqdEnabled) {
-        const gbqdRef = vscodeVariables(vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME));
+        const gbqdRef = vscodeVariables.variables(vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME) ?? "");
         if (gbqdRef?.length) {
             return getGitAPI()?.toGitUri(uri, gbqdRef);
         }
