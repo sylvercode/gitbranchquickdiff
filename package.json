@@ -24,12 +24,12 @@
         "gitbranchquickdiff.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Use Git Branch Quick Diff as diff gutter instead of VSCode defaut. The file of the ref will be use as base for the comparaison."
+          "description": "Use Git Branch Quick Diff as diff gutter instead of VSCode default. The file of the ref will be use as base for the comparison."
         },
         "gitbranchquickdiff.ref": {
           "type": "string",
           "default": "main",
-          "description": "Name of the ref to use for comparaison. Variables subtition can be use."
+          "description": "Name of the ref to use for comparison. Variables substitution can be use."
         }
       }
     },

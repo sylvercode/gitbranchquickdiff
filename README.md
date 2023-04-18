@@ -4,15 +4,15 @@ Change the VSCode diff gutter to use another git ref as original file.
 
 ## Features
 
-Specify any git ref (the default is the branch name `main`) as the original file for VSCode what lines are modified in the current editor.
+Specify any git ref (the default is the branch named `main`) as the original file to use by VSCode to detect what lines are modified in the current editor.
 
-Use commands `Use GitBranchQuickDiff` and `Use VSCode default quick diff` to toggle betweens the new diff gutter and the default diff gutter in your worspace settings.
+Use commands `Use GitBranchQuickDiff` and `Use VSCode default quick diff` to toggle betweens the new diff gutter and the default diff gutter in your workspace settings.
 
-Set the git ref to use in your workspace settings with `Set quick diff ref` and reset the ref define in your user settings with `Use default quick diff ref`.
+Set the git ref to use in your workspace settings with `Set quick diff ref` and reset the ref defined in your user settings with `Revert quick diff ref to user setting`.
 
 ## Requirements
 
-This extention need Git.
+This extension need Git.
 
 ## Extension Settings
 
@@ -29,3 +29,8 @@ Sometime, when toggling back to VSCode default behavior, the windows need to be 
 ### 0.1.0
 
 Initial release of GitBranchQuickDiff
+
+### 0.1.1
+
+BUG Correction
+Enabled setting default is now `on`.
