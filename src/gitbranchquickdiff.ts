@@ -62,8 +62,15 @@ function registerToGitExtention() {
         return;
     }
 
-    gitExport.getAPI(1)?.onDidOpenRepository(onOpenRepository);
+    const gitAPI = gitExport.getAPI(1);
+    if (!gitAPI) {
+        return;
+    }
+
+    gitAPI.onDidOpenRepository(onOpenRepository);
     gdqbGitInfo.onDidOpenRepositoryRegistered = true;
+
+    gitAPI.repositories.forEach(onOpenRepository);
 
     console.log("Git onDidOpenRepository registered");
 }
@@ -152,6 +159,7 @@ function provideOriginalResource(this: vscode.QuickDiffProvider, uri: vscode.Uri
     const gbqdEnabled = vscode.workspace.getConfiguration(EXTENTION_NAME).get(ENABLED_CONFIG_NAME);
     if (gbqdEnabled) {
         const gbqdRef = vscodeVariables.variables(vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME) ?? "");
+        console.log(`ref: ${gbqdRef}`);
         if (gbqdRef?.length) {
             return getGitAPI()?.toGitUri(uri, gbqdRef);
         }
@@ -171,5 +179,5 @@ function provideOriginalResource(this: vscode.QuickDiffProvider, uri: vscode.Uri
         return undefined;
     }
 
-    return repoInfo.baseProvideOriginalResourceFunc(uri, token);
+    return repoInfo.baseProvideOriginalResourceFunc.call(this, uri, token);
 }
