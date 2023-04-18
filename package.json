@@ -6,7 +6,7 @@
   "repository": {
     "url": "https://github.com/sylvercode/gitbranchquickdiff"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "engines": {
     "vscode": "^1.77.0"
   },
@@ -23,7 +23,7 @@
       "properties": {
         "gitbranchquickdiff.enabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Use Git Branch Quick Diff as diff gutter instead of VSCode defaut. The file of the ref will be use as base for the comparaison."
         },
         "gitbranchquickdiff.ref": {
@@ -45,7 +45,7 @@
       },
       {
         "command": "gitbranchquickdiff.defaultref",
-        "title": "Use default quick diff ref"
+        "title": "Revert quick diff ref to user setting"
       },
       {
         "command": "gitbranchquickdiff.deactivate",
