@@ -2,6 +2,8 @@
 
 Change the VSCode diff gutter to use another git ref as original file.
 
+:warning: **Since VSCode 1.97.0, this extention does not work any more (see [#2](../../issues/2))**
+
 ## Features
 
 Specify any git ref (the default is the branch named `main`) as the original file to use by VSCode to detect what lines are modified in the current editor.
