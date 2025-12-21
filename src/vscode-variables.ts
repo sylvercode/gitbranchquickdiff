@@ -1,8 +1,13 @@
 import * as vscode from 'vscode';
 import * as process from 'process';
 import * as path from 'path';
+import { Repository, RefType } from './git';
 
-export function variables(str: string, recursive = false) {
+export function variables(gitRepo: Repository, str: string, recursive = false) {
+    return processVariables(gitRepo, str, recursive);
+}
+
+async function processVariables(gitRepo: Repository, str: string, recursive = false): Promise<string> {
     let workspaces = vscode.workspace.workspaceFolders;
     let workspace = workspaces?.length ? workspaces[0] : null;
     let activeFile = vscode.window.activeTextEditor?.document;
@@ -49,8 +54,60 @@ export function variables(str: string, recursive = false) {
         return '';
     });
 
-    if (recursive && str.match(/\${(workspaceFolder|workspaceFolderBasename|fileWorkspaceFolder|relativeFile|fileBasename|fileBasenameNoExtension|fileExtname|fileDirname|cwd|pathSeparator|lineNumber|selectedText|env:(.*?)|config:(.*?))}/)) {
-        str = variables(str, recursive);
+    // ${git:lastTag} - get the last tag
+    if (str.includes('${git:lastTag}')) {
+        let lastTag = '';
+        if (gitRepo) {
+            try {
+                const tags = await gitRepo.getRefs({ pattern: 'refs/tags' });
+                if (tags.length > 0 && tags[tags.length - 1].name) {
+                    lastTag = tags[tags.length - 1].name!;
+                }
+            } catch (error) {
+                console.error('Failed to get last tag:', error);
+            }
+        }
+        str = str.replace(/\${git:lastTag}/g, lastTag);
+    }
+
+    // ${git:track} - get the tracking branch
+    if (str.includes('${git:track}')) {
+        let trackingBranch = '';
+        if (gitRepo && gitRepo.state.HEAD?.upstream) {
+            const upstream = gitRepo.state.HEAD.upstream;
+            trackingBranch = `${upstream.remote}/${upstream.name}`;
+        }
+        str = str.replace(/\${git:track}/g, trackingBranch);
+    }
+
+    // ${git:push} - get the push branch
+    if (str.includes('${git:push}')) {
+        let pushBranch = '';
+        if (gitRepo && gitRepo.state.HEAD) {
+            try {
+                // Get push remote and branch from git config
+                const branchName = gitRepo.state.HEAD.name;
+                if (branchName) {
+                    const pushRemote = await gitRepo.getConfig(`branch.${branchName}.pushRemote`);
+                    const pushBranchName = await gitRepo.getConfig(`branch.${branchName}.push`);
+
+                    if (pushRemote && pushBranchName) {
+                        pushBranch = `${pushRemote}/${pushBranchName}`;
+                    } else if (gitRepo.state.HEAD.upstream) {
+                        // Fallback to upstream if push is not explicitly configured
+                        const upstream = gitRepo.state.HEAD.upstream;
+                        pushBranch = `${upstream.remote}/${upstream.name}`;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to get push branch:', error);
+            }
+        }
+        str = str.replace(/\${git:push}/g, pushBranch);
+    }
+
+    if (recursive && str.match(/\${(workspaceFolder|workspaceFolderBasename|fileWorkspaceFolder|relativeFile|fileBasename|fileBasenameNoExtension|fileExtname|fileDirname|cwd|pathSeparator|lineNumber|selectedText|env:(.*?)|config:(.*?)|git:(lastTag|track|push))}/)) {
+        str = await processVariables(gitRepo, str, recursive);
     }
     return str;
 };

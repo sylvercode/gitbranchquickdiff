@@ -10,7 +10,9 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}"
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--enable-proposed-apis",
+				"sylvercode.gitbranchquickdiff"
 			],
 			"outFiles": [
 				"${workspaceFolder}/out/**/*.js"
