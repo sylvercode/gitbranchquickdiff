@@ -10,6 +10,7 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
+				"--new-window",
 				"--extensionDevelopmentPath=${workspaceFolder}",
 				"--enable-proposed-apis",
 				"sylvercode.gitbranchquickdiff"

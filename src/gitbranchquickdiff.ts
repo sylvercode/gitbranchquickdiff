@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import './vscode.proposed.quickDiffProvider';
 import * as vscodeVariables from './vscode-variables';
 import { getGitAPI } from './gitApi';
 import * as git from './git';
@@ -45,38 +44,44 @@ async function registerToGitExtention(context: vscode.ExtensionContext) {
 }
 
 async function registerProvider(context: vscode.ExtensionContext, git: git.API) {
-    for (const repository of git.repositories) {
-        const provider = new CustomQuickDiffProvider(git, repository);
+    const providers = new Map<git.Repository, { provider: CustomQuickDiffProvider; disposable: vscode.Disposable }>();
 
-        // Register the Quick Diff Provider
+    const registerRepo = async (repository: git.Repository) => {
+        const provider = new CustomQuickDiffProvider(git, repository);
+        await provider.updateLabel();
         const disposable = vscode.window.registerQuickDiffProvider(
             { pattern: `${repository.rootUri.fsPath}/**` },
             provider,
             EXTENTION_NAME,
-            EXTENTION_NAME,
+            provider.label,
             repository.rootUri
         );
-
+        providers.set(repository, { provider, disposable });
         context.subscriptions.push(disposable);
+    };
+
+    // Register existing repositories
+    for (const repository of git.repositories) {
+        registerRepo(repository);
     }
 
     // Listen for new repositories
-    git.onDidOpenRepository(async (repository: git.Repository) => {
-        const provider = new CustomQuickDiffProvider(git, repository);
-        const disposable = vscode.window.registerQuickDiffProvider(
-            { pattern: `${repository.rootUri.fsPath}/**` },
-            provider,
-            EXTENTION_NAME,
-            EXTENTION_NAME,
-            repository.rootUri
-        );
-        context.subscriptions.push(disposable);
-    });
+    context.subscriptions.push(git.onDidOpenRepository(registerRepo));
+
+    // Listen for config changes and re-register providers
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+        if (e.affectsConfiguration(`${EXTENTION_NAME}.${REF_CONFIG_NAME}`) ||
+            e.affectsConfiguration(`${EXTENTION_NAME}.${ENABLED_CONFIG_NAME}`)) {
+            // Dispose and re-register all providers
+            for (const [repository, { disposable }] of providers) {
+                disposable.dispose();
+                registerRepo(repository);
+            }
+        }
+    }));
 }
 
 class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
-    private _onDidChange = new vscode.EventEmitter<vscode.Uri>();
-    readonly onDidChange = this._onDidChange.event;
     readonly id = EXTENTION_NAME;
     private _label: string = 'HEAD';
 
@@ -87,20 +92,9 @@ class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
     constructor(
         private git: git.API,
         private repository: git.Repository) {
-        // Initialize label
-        this.updateLabel();
-
-        // Listen for config changes
-        vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration(`${EXTENTION_NAME}.${REF_CONFIG_NAME}`)
-                || e.affectsConfiguration(`${EXTENTION_NAME}.${ENABLED_CONFIG_NAME}`)) {
-                this.updateLabel();
-                this._onDidChange.fire(vscode.Uri.file(this.repository.rootUri.fsPath));
-            }
-        });
     }
 
-    private async updateLabel() {
+    public async updateLabel() {
         this._label = await this.getCurrentRef();
     }
 
@@ -151,7 +145,9 @@ function resetRefToDefault() {
 
 async function changeRef() {
     const input = await vscode.window.showInputBox({
-        title: 'ref'
+        title: 'ref',
+        prompt: 'Enter the git reference to use for quick diff (branch, tag, commit hash, etc.)',
+        value: vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME),
     });
 
     if (input) {

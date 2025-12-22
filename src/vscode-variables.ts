@@ -55,58 +55,73 @@ async function processVariables(gitRepo: Repository, str: string, recursive = fa
     });
 
     // ${git:lastTag} - get the last tag
-    if (str.includes('${git:lastTag}')) {
+    // ${git:lastTag:RegEx} - get the last tag matching regex
+    const lastTagMatches = str.matchAll(/\${git:lastTag(?::([^}]+))?}/g);
+    for (const match of lastTagMatches) {
         let lastTag = '';
+        const regexPattern = match[1]; // Capture the optional regex pattern
+
         if (gitRepo) {
             try {
                 const tags = await gitRepo.getRefs({ pattern: 'refs/tags' });
-                if (tags.length > 0 && tags[tags.length - 1].name) {
-                    lastTag = tags[tags.length - 1].name!;
+
+                if (regexPattern) {
+                    // Filter tags by regex pattern
+                    try {
+                        const regex = new RegExp(regexPattern);
+                        const filteredTags = tags.filter(tag => tag.name && regex.test(tag.name));
+                        if (filteredTags.length > 0 && filteredTags[0].name) {
+                            lastTag = filteredTags[0].name!;
+                        }
+                    } catch (regexError) {
+                        console.error('Invalid regex pattern for git:lastTag:', regexError);
+                    }
+                } else {
+                    // No regex, use the last tag
+                    if (tags.length > 0 && tags[0].name) {
+                        lastTag = tags[0].name;
+                    }
                 }
             } catch (error) {
                 console.error('Failed to get last tag:', error);
             }
         }
-        str = str.replace(/\${git:lastTag}/g, lastTag);
+
+        str = str.replace(match[0], lastTag);
     }
 
     // ${git:track} - get the tracking branch
-    if (str.includes('${git:track}')) {
-        let trackingBranch = '';
-        if (gitRepo && gitRepo.state.HEAD?.upstream) {
-            const upstream = gitRepo.state.HEAD.upstream;
-            trackingBranch = `${upstream.remote}/${upstream.name}`;
-        }
+    if (gitRepo && gitRepo.state.HEAD?.upstream) {
+        const upstream = gitRepo.state.HEAD.upstream;
+        const trackingBranch = `${upstream.remote}/${upstream.name}`;
         str = str.replace(/\${git:track}/g, trackingBranch);
     }
 
     // ${git:push} - get the push branch
-    if (str.includes('${git:push}')) {
-        let pushBranch = '';
-        if (gitRepo && gitRepo.state.HEAD) {
-            try {
-                // Get push remote and branch from git config
-                const branchName = gitRepo.state.HEAD.name;
-                if (branchName) {
-                    const pushRemote = await gitRepo.getConfig(`branch.${branchName}.pushRemote`);
-                    const pushBranchName = await gitRepo.getConfig(`branch.${branchName}.push`);
+    let pushBranch = '';
+    if (gitRepo && gitRepo.state.HEAD) {
+        try {
+            // Get push remote and branch from git config
+            const branchName = gitRepo.state.HEAD.name;
+            if (branchName) {
+                const pushRemote = await gitRepo.getConfig(`branch.${branchName}.pushRemote`);
+                const pushBranchName = await gitRepo.getConfig(`branch.${branchName}.push`);
 
-                    if (pushRemote && pushBranchName) {
-                        pushBranch = `${pushRemote}/${pushBranchName}`;
-                    } else if (gitRepo.state.HEAD.upstream) {
-                        // Fallback to upstream if push is not explicitly configured
-                        const upstream = gitRepo.state.HEAD.upstream;
-                        pushBranch = `${upstream.remote}/${upstream.name}`;
-                    }
+                if (pushRemote && pushBranchName) {
+                    pushBranch = `${pushRemote}/${pushBranchName}`;
+                } else if (gitRepo.state.HEAD.upstream) {
+                    // Fallback to upstream if push is not explicitly configured
+                    const upstream = gitRepo.state.HEAD.upstream;
+                    pushBranch = `${upstream.remote}/${upstream.name}`;
                 }
-            } catch (error) {
-                console.error('Failed to get push branch:', error);
             }
+        } catch (error) {
+            console.error('Failed to get push branch:', error);
         }
-        str = str.replace(/\${git:push}/g, pushBranch);
     }
+    str = str.replace(/\${git:push}/g, pushBranch);
 
-    if (recursive && str.match(/\${(workspaceFolder|workspaceFolderBasename|fileWorkspaceFolder|relativeFile|fileBasename|fileBasenameNoExtension|fileExtname|fileDirname|cwd|pathSeparator|lineNumber|selectedText|env:(.*?)|config:(.*?)|git:(lastTag|track|push))}/)) {
+    if (recursive && str.match(/\${(workspaceFolder|workspaceFolderBasename|fileWorkspaceFolder|relativeFile|fileBasename|fileBasenameNoExtension|fileExtname|fileDirname|cwd|pathSeparator|lineNumber|selectedText|env:(.*?)|config:(.*?)|git:(lastTag(?::[^}]+)?|track|push))}/)) {
         str = await processVariables(gitRepo, str, recursive);
     }
     return str;
