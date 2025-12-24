@@ -63,10 +63,30 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     // Register existing repositories
     for (const repository of git.repositories) {
         registerRepo(repository);
+
+        // Listen for HEAD changes (checkout) and re-register provider
+        context.subscriptions.push(repository.state.onDidChange(() => {
+            const existingProvider = providers.get(repository);
+            if (existingProvider) {
+                existingProvider.disposable.dispose();
+                registerRepo(repository);
+            }
+        }));
     }
 
     // Listen for new repositories
-    context.subscriptions.push(git.onDidOpenRepository(registerRepo));
+    context.subscriptions.push(git.onDidOpenRepository((repository) => {
+        registerRepo(repository);
+
+        // Listen for HEAD changes (checkout) and re-register provider
+        context.subscriptions.push(repository.state.onDidChange(() => {
+            const existingProvider = providers.get(repository);
+            if (existingProvider) {
+                existingProvider.disposable.dispose();
+                registerRepo(repository);
+            }
+        }));
+    }));
 
     // Listen for config changes and re-register providers
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {

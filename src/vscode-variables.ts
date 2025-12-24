@@ -61,25 +61,40 @@ async function processVariables(gitRepo: Repository, str: string, recursive = fa
         let lastTag = '';
         const regexPattern = match[1]; // Capture the optional regex pattern
 
-        if (gitRepo) {
+        if (gitRepo && gitRepo.state.HEAD?.commit) {
             try {
-                const tags = await gitRepo.getRefs({ pattern: 'refs/tags' });
+                // Get all tags sorted by creation date
+                const allTags = await gitRepo.getRefs({
+                    pattern: 'refs/tags',
+                    sort: 'creatordate'
+                });
 
+                // Compile regex if pattern provided
+                let regex: RegExp | null = null;
                 if (regexPattern) {
-                    // Filter tags by regex pattern
                     try {
-                        const regex = new RegExp(regexPattern);
-                        const filteredTags = tags.filter(tag => tag.name && regex.test(tag.name));
-                        if (filteredTags.length > 0 && filteredTags[0].name) {
-                            lastTag = filteredTags[0].name!;
-                        }
+                        regex = new RegExp(regexPattern);
                     } catch (regexError) {
                         console.error('Invalid regex pattern for git:lastTag:', regexError);
                     }
-                } else {
-                    // No regex, use the last tag
-                    if (tags.length > 0 && tags[0].name) {
-                        lastTag = tags[0].name;
+                }
+
+                // Find first tag that is reachable from current branch and matches criteria
+                for (const tag of allTags) {
+                    if (tag.commit && tag.name) {
+                        try {
+                            // Check if tag commit is an ancestor of HEAD
+                            const mergeBase = await gitRepo.getMergeBase(tag.commit, gitRepo.state.HEAD.commit!);
+                            if (mergeBase === tag.commit) {
+                                // Tag is reachable, check if it matches regex (if provided)
+                                if (!regex || regex.test(tag.name)) {
+                                    lastTag = tag.name;
+                                    break; // Found the first matching tag, stop searching
+                                }
+                            }
+                        } catch {
+                            // Ignore errors for individual tags
+                        }
                     }
                 }
             } catch (error) {
