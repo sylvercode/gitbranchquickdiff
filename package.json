@@ -36,6 +36,16 @@
         }
       }
     },
+    "views": {
+      "scm": [
+        {
+          "id": "gitbranchquickdiff.changes",
+          "name": "Git Branch Quick Diff",
+          "icon": "$(git-branch)",
+          "contextualTitle": "Git Branch Quick Diff Changes"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "gitbranchquickdiff.activate",
@@ -54,9 +64,30 @@
         "command": "gitbranchquickdiff.deactivate",
         "title": "Deactivate GitBranchQuickDiff",
         "enablement": "config.gitbranchquickdiff.enabled"
+      },
+      {
+        "command": "gitbranchquickdiff.refreshChanges",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gitbranchquickdiff.openChange",
+        "title": "Open Changes"
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "gitbranchquickdiff.refreshChanges",
+          "when": "view == gitbranchquickdiff.changes",
+          "group": "navigation"
+        },
+        {
+          "command": "gitbranchquickdiff.changeref",
+          "when": "view == gitbranchquickdiff.changes",
+          "group": "1_commands"
+        }
+      ],
       "editor/title": [
         {
           "command": "gitbranchquickdiff.activate",

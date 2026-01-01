@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as vscodeVariables from './vscode-variables';
 import { getGitAPI } from './gitApi';
 import * as git from './git';
+import { ChangesTreeDataProvider, openChange } from './changesTreeView';
 
 export const EXTENTION_NAME = 'gitbranchquickdiff';
 
@@ -19,6 +20,8 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.deactivate`, disableExtention);
     registerCommand(context, `${EXTENTION_NAME}.changeref`, changeRef);
     registerCommand(context, `${EXTENTION_NAME}.defaultref`, resetRefToDefault);
+    registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, refreshChanges);
+    registerCommand(context, `${EXTENTION_NAME}.openChange`, openChangeCommand);
 }
 
 async function registerToGitExtention(context: vscode.ExtensionContext) {
@@ -45,8 +48,48 @@ async function registerToGitExtention(context: vscode.ExtensionContext) {
 
 async function registerProvider(context: vscode.ExtensionContext, git: git.API) {
     const providers = new Map<git.Repository, { provider: CustomQuickDiffProvider; disposable: vscode.Disposable }>();
+    const treeViews = new Map<git.Repository, { treeDataProvider: ChangesTreeDataProvider; treeView: vscode.TreeView<any> }>();
+
+    // Helper function to re-register QuickDiffProvider
+    const reregisterQuickDiffProvider = async (repository: git.Repository) => {
+        console.log(`[GitBranchQuickDiff] Re-registering QuickDiffProvider for repository: ${repository.rootUri.fsPath}`);
+
+        const existingProvider = providers.get(repository);
+        if (existingProvider) {
+            existingProvider.disposable.dispose();
+
+            const provider = new CustomQuickDiffProvider(git, repository);
+            await provider.updateLabel();
+            const disposable = vscode.window.registerQuickDiffProvider(
+                { pattern: `${repository.rootUri.fsPath}/**` },
+                provider,
+                EXTENTION_NAME,
+                provider.label,
+                repository.rootUri
+            );
+            providers.set(repository, { provider, disposable });
+            currentProviders.set(repository, provider);
+            console.log(`[GitBranchQuickDiff] QuickDiffProvider re-registered`);
+        }
+    };
+
+    // Helper function to setup HEAD change listener
+    const setupHeadChangeListener = (repository: git.Repository) => {
+        context.subscriptions.push(repository.state.onDidChange(async () => {
+            console.log(`[GitBranchQuickDiff] HEAD changed for repository: ${repository.rootUri.fsPath}`);
+            await reregisterQuickDiffProvider(repository);
+
+            // Refresh tree view (which will update decorations)
+            const treeView = treeViews.get(repository);
+            if (treeView) {
+                treeView.treeDataProvider.refresh();
+            }
+        }));
+    };
 
     const registerRepo = async (repository: git.Repository) => {
+        console.log(`[GitBranchQuickDiff] Registering provider for repository: ${repository.rootUri.fsPath}`);
+
         const provider = new CustomQuickDiffProvider(git, repository);
         await provider.updateLabel();
         const disposable = vscode.window.registerQuickDiffProvider(
@@ -58,44 +101,59 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
         );
         providers.set(repository, { provider, disposable });
         context.subscriptions.push(disposable);
+        console.log(`[GitBranchQuickDiff] QuickDiffProvider registered`);
+
+        // Register tree view for this repository
+        const treeDataProvider = new ChangesTreeDataProvider(
+            repository,
+            () => provider.getCurrentRef()
+        );
+        const treeView = vscode.window.createTreeView(`${EXTENTION_NAME}.changes`, {
+            treeDataProvider,
+            showCollapseAll: false
+        });
+        treeViews.set(repository, { treeDataProvider, treeView });
+        context.subscriptions.push(treeView);
+        console.log(`[GitBranchQuickDiff] Tree view registered`);
+
+        // Register file decoration provider for explorer and tab headers
+        console.log(`[GitBranchQuickDiff] Registering file decoration provider`);
+        const decorationDisposable = vscode.window.registerFileDecorationProvider(treeDataProvider.decorationProvider);
+        context.subscriptions.push(decorationDisposable);
+        console.log(`[GitBranchQuickDiff] File decoration provider registered`);
+
+        // Store references for command access
+        currentTreeDataProviders.set(repository, treeDataProvider);
+        currentRepositories.set(repository, repository);
+        currentProviders.set(repository, provider);
     };
 
     // Register existing repositories
     for (const repository of git.repositories) {
         registerRepo(repository);
-
-        // Listen for HEAD changes (checkout) and re-register provider
-        context.subscriptions.push(repository.state.onDidChange(() => {
-            const existingProvider = providers.get(repository);
-            if (existingProvider) {
-                existingProvider.disposable.dispose();
-                registerRepo(repository);
-            }
-        }));
+        setupHeadChangeListener(repository);
     }
 
     // Listen for new repositories
     context.subscriptions.push(git.onDidOpenRepository((repository) => {
         registerRepo(repository);
-
-        // Listen for HEAD changes (checkout) and re-register provider
-        context.subscriptions.push(repository.state.onDidChange(() => {
-            const existingProvider = providers.get(repository);
-            if (existingProvider) {
-                existingProvider.disposable.dispose();
-                registerRepo(repository);
-            }
-        }));
+        setupHeadChangeListener(repository);
     }));
 
     // Listen for config changes and re-register providers
-    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
         if (e.affectsConfiguration(`${EXTENTION_NAME}.${REF_CONFIG_NAME}`) ||
             e.affectsConfiguration(`${EXTENTION_NAME}.${ENABLED_CONFIG_NAME}`)) {
-            // Dispose and re-register all providers
-            for (const [repository, { disposable }] of providers) {
-                disposable.dispose();
-                registerRepo(repository);
+            console.log(`[GitBranchQuickDiff] Configuration changed`);
+
+            // Re-register all QuickDiffProviders
+            for (const repository of providers.keys()) {
+                await reregisterQuickDiffProvider(repository);
+            }
+
+            // Refresh all tree views (which will update decorations)
+            for (const [repository, { treeDataProvider }] of treeViews) {
+                treeDataProvider.refresh();
             }
         }
     }));
@@ -172,5 +230,33 @@ async function changeRef() {
 
     if (input) {
         vscode.workspace.getConfiguration(EXTENTION_NAME).update(REF_CONFIG_NAME, input, false);
+    }
+}
+
+// Global maps to store current tree providers and repositories for command access
+const currentTreeDataProviders = new Map<git.Repository, ChangesTreeDataProvider>();
+const currentRepositories = new Map<git.Repository, git.Repository>();
+const currentProviders = new Map<git.Repository, CustomQuickDiffProvider>();
+
+function refreshChanges() {
+    for (const treeDataProvider of currentTreeDataProviders.values()) {
+        treeDataProvider.refresh();
+    }
+}
+
+async function openChangeCommand(uri: vscode.Uri, status: git.Status) {
+    // Get the Git API
+    const gitApi = await getGitAPI();
+    if (!gitApi) {
+        vscode.window.showErrorMessage('Git extension not found');
+        return;
+    }
+
+    // Find the repository for this URI
+    for (const [repository, provider] of currentProviders.entries()) {
+        if (uri.fsPath.startsWith(repository.rootUri.fsPath)) {
+            await openChange(gitApi, repository, () => provider.getCurrentRef(), uri, status);
+            return;
+        }
     }
 }
