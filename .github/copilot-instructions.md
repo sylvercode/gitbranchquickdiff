@@ -4,6 +4,8 @@
 
 VS Code extension that replaces the default diff gutter with comparisons against a configurable git reference (branch, tag, or commit). Uses the **proposed QuickDiffProvider API** (`enabledApiProposals: ["quickDiffProvider"]` in package.json) which requires `--enable-proposed-apis` flag during development.
 
+**Key Capability**: Show diff gutters comparing current file state to any git ref (not just HEAD), with a custom tree view showing all changes and file decorations in the explorer.
+
 ## Architecture
 
 ### Core Components
@@ -11,17 +13,21 @@ VS Code extension that replaces the default diff gutter with comparisons against
 - **[extension.ts](../src/extension.ts)**: Minimal entry point - delegates to `gitbranchquickdiff.ts`
 - **[gitbranchquickdiff.ts](../src/gitbranchquickdiff.ts)**: Main controller implementing `CustomQuickDiffProvider` class
   - Registers provider per repository with `vscode.window.registerQuickDiffProvider()`
-  - Provider re-registers on HEAD changes (checkout) and config changes
+  - Provider **re-registers** (dispose + recreate) on HEAD changes (checkout) and config changes
   - Returns `undefined` when disabled to fall back to VS Code default behavior
-  - Manages tree view lifecycle and refresh
+  - Manages tree view lifecycle and refresh (tree view refreshes, not re-registers)
+  - Stores global maps (`currentTreeDataProviders`, `currentRepositories`, `currentProviders`) for command access
 - **[changesTreeView.ts](../src/changesTreeView.ts)**: Tree view provider for displaying changed files
   - `ChangesTreeDataProvider`: Main tree provider showing all changes (diff + worktree)
-    - Displays files changed between ref and HEAD (committed changes)
-    - Includes working tree changes (staged, unstaged, untracked)
-    - Merges and deduplicates changes by URI
+    - Displays files changed between ref and HEAD via `repository.diffBetween(ref, 'HEAD')`
+    - Includes working tree changes: `indexChanges` (staged), `workingTreeChanges` (unstaged), `mergeChanges`
+    - Merges and deduplicates changes by URI with worktree status tracking
+    - **Critical**: Passes decoration provider to tree view for registration
   - `ChangesDecorationProvider`: File decoration provider for explorer and tab headers
-    - Only decorates files with diff changes (ref vs HEAD) with `⁺` badge
-    - Does not decorate worktree-only changes
+    - **Registered once per repository** (never re-registered, unlike QuickDiffProvider)
+    - Only decorates files with diff changes (ref vs HEAD) with `⁺` superscript badge
+    - Does not decorate worktree-only changes (avoids conflicts with built-in Git extension)
+    - Updates decorations via `setChanges()` when tree refreshes
   - `ChangedFile`: Tree item with smart status display:
     - Diff changes: `M⁺` (with superscript plus)
     - Diff + worktree: `M⁺, M` (comma-separated)
@@ -30,17 +36,26 @@ VS Code extension that replaces the default diff gutter with comparisons against
   - Status indicators: M (Modified), A (Added), D (Deleted), R (Renamed), U (Untracked), I (Ignored)
   - Git-style colored icons using theme colors
 - **[gitApi.ts](../src/gitApi.ts)**: Wrapper for VS Code's built-in Git extension API
+  - `getGitAPI()`: Gets Git extension API, waits for activation if needed
+  - `getGitRepository()`: Gets repository for a workspace URI
 - **[vscode-variables.ts](../src/vscode-variables.ts)**: Variable substitution system supporting:
-  - Standard VS Code variables (`${workspaceFolder}`, `${file}`, etc.)
-  - Git-specific variables: `${git:lastTag}`, `${git:lastTag:RegEx}`, `${git:track}`, `${git:push}`
+  - Standard VS Code variables (`${workspaceFolder}`, `${file}`, `${lineNumber}`, `${selectedText}`, etc.)
+  - Environment variables: `${env:VAR_NAME}`
+  - Config variables: `${config:setting.name}`
+  - Git-specific variables:
+    - `${git:lastTag}`: Last reachable tag from current HEAD
+    - `${git:lastTag:RegEx}`: Last tag matching regex (e.g., `${git:lastTag:^v[0-9].*}`)
+    - `${git:track}`: Tracking branch (`remote/branch`)
+    - `${git:push}`: Push target branch
 
 ### Key Patterns
 
-1. **Provider Lifecycle**: Providers are disposed and re-registered (not updated in-place) when:
-   - Repository HEAD changes (branch checkout)
+1. **Provider Lifecycle & Re-registration**: Providers are disposed and re-registered (not updated in-place) when:
+   - Repository HEAD changes (branch checkout) - detected via `repository.state.onDidChange`
    - Configuration changes (`gitbranchquickdiff.ref` or `gitbranchquickdiff.enabled`)
-   - Tree view is refreshed (not re-registered) on these events
-   - FileDecorationProvider registered once per repository (never re-registered)
+   - **QuickDiffProvider**: Disposed and re-registered with updated label on changes
+   - **Tree View**: Refreshed via `_onDidChangeTreeData.fire()` (not re-registered)
+   - **FileDecorationProvider**: Registered once per repository, never re-registered; updates via `setChanges()`
 
 2. **Git API Integration**: Wait for Git extension state `'initialized'` before registering providers:
    ```typescript
@@ -51,19 +66,26 @@ VS Code extension that replaces the default diff gutter with comparisons against
    }
    ```
 
-3. **Configuration Scope**: All settings are workspace-scoped (third param `false` in `update()` calls)
+3. **Configuration Scope**: All settings are workspace-scoped (third param `false` in `update()` calls) to allow per-workspace refs.
 
-4. **Change Tracking**: Tree view shows union of:
-   - Diff changes: `repository.diffBetween(ref, 'HEAD')`
-   - Index changes: `repository.state.indexChanges` (staged)
-   - Working tree changes: `repository.state.workingTreeChanges` (unstaged)
-   - Merge changes: `repository.state.mergeChanges`
-   - Deduplication by URI with worktree status tracking
+4. **Change Tracking Strategy**: Tree view shows union of two sources:
+   - **Diff changes** (ref vs HEAD): `repository.diffBetween(ref, 'HEAD')` - committed differences
+   - **Worktree changes**: Union of `indexChanges`, `workingTreeChanges`, `mergeChanges` - uncommitted work
+   - Deduplication by URI string (`uri.toString()`) with worktree status tracked separately
+   - Track `isInDiff` flag to distinguish diff changes from worktree-only changes
 
-5. **Decoration Strategy**: 
-   - Only files with diff changes (ref vs HEAD) get decorations in explorer/tabs
-   - Worktree-only changes appear in tree view but not decorated in explorer
-   - Prevents decoration conflicts with built-in Git extension
+5. **Decoration Strategy** (prevents conflicts with built-in Git extension):
+   - Only files with diff changes (ref vs HEAD) get `⁺` badge decorations in explorer/tabs
+   - Worktree-only changes appear in tree view but **not decorated** in explorer
+   - Uses `Map<string, ChangeInfo>` keyed by `uri.toString()` for decoration tracking
+   - Fires `onDidChangeFileDecorations` only for changed URIs (optimization)
+
+6. **Provider Registration Pattern**: One provider instance per repository:
+   - Pattern matching: `{ pattern: '${repository.rootUri.fsPath}/**' }` scopes to specific repo
+   - Stored in `Map<git.Repository, { provider, disposable }>` for lifecycle management
+   - Tree views and providers stored in separate maps for command access
+
+7. **Git URI Generation**: Use `git.toGitUri(uri, ref)` to create virtual URIs for historical file versions in diffs.
 
 ## Development Workflow
 
@@ -73,32 +95,57 @@ npm run watch          # TypeScript watch mode (background task)
 npm run compile        # One-time build
 ```
 
+Or use VS Code tasks:
+- **Default Build Task** (Ctrl+Shift+B): Runs `npm run watch` in background with `$tsc-watch` problem matcher
+
 ### Debugging
 Press **F5** to launch Extension Development Host with:
-- Proposed APIs enabled (see [.vscode/launch.json](../.vscode/launch.json))
+- Proposed APIs enabled via `--enable-proposed-apis sylvercode.gitbranchquickdiff` (see [.vscode/launch.json](../.vscode/launch.json))
 - Pre-launch build task runs automatically
-- Example env var: `MYREF` (used in `${env:MYREF}` variable substitution)
+- Example env var in launch config: `MYREF` (used in `${env:MYREF}` variable substitution)
+
+**Console Logging**: Extension logs with `[GitBranchQuickDiff]` prefix for filtering:
+- Provider registration/re-registration events
+- HEAD change detection
+- Configuration change detection
+- File decoration updates
 
 ### Commands Available
-- `Use GitBranchQuickDiff` / `Deactivate GitBranchQuickDiff`: Toggle extension
-- `Set quick diff ref`: Change comparison reference
-- `Revert quick diff ref to user setting`: Reset workspace override
-- `Refresh`: Refresh the changes tree view
-- `Open Changes`: Open diff view for a changed file
+- `Use GitBranchQuickDiff` / `Deactivate GitBranchQuickDiff`: Toggle extension (workspace setting)
+- `Set quick diff ref`: Change comparison reference (shows input box with current value)
+- `Revert quick diff ref to user setting`: Reset workspace override to `undefined`
+- `Refresh`: Manually refresh the changes tree view
+- `Open Changes`: Open diff view for a changed file (registered via tree item command)
+
+### Testing Variable Substitution
+Set `gitbranchquickdiff.ref` to test variable patterns:
+- `${git:lastTag}` - last reachable tag
+- `${git:lastTag:^v[0-9].*}` - last semver tag starting with 'v'
+- `${git:track}` - tracking branch
+- `${env:MYREF}` - environment variable from launch config
 
 ## File Organization
 
-- **Type definitions**: `git.d.ts`, `vscode.proposed.quickDiffProvider.d.ts` (proposed API types)
-- **UI Components**: `changesTreeView.ts` (tree view for changed files)
+- **Type definitions**:
+  - `git.d.ts`: Git extension API types (from VS Code git extension)
+  - `vscode.proposed.quickDiffProvider.d.ts`: Proposed API types for QuickDiffProvider
+- **UI Components**: `changesTreeView.ts` (tree view + decorations for SCM viewlet)
 - **Compilation**: `tsconfig.json` targets ES2024, strict mode enabled, outputs to `out/`
-- **Linting**: ESLint with TypeScript parser (see `.eslintrc.json`)
+- **Linting**: ESLint with `@typescript-eslint/parser` (see `.eslintrc.json`)
+  - Naming conventions, semicolons, curly braces, strict equality
+  - Ignores: `out/`, `dist/`, `**/*.d.ts`
 
 ## Critical Notes
 
-- **Proposed API**: Requires VS Code 1.107.1+ and explicit enabling in both package.json and launch args
-- **Variable Substitution**: The ref setting supports complex patterns like `${git:lastTag:^v[0-9].*}` for regex-filtered tags
-- **Repository Scoping**: Provider pattern matching uses `${repository.rootUri.fsPath}/**` to scope to specific repos
-- **Git URI Generation**: Uses `git.toGitUri(uri, ref)` to create virtual URIs for historical file versions
+- **Proposed API**: Requires VS Code 1.107.1+ and explicit enabling in:
+  - `package.json`: `"enabledApiProposals": ["quickDiffProvider"]`
+  - `launch.json`: `--enable-proposed-apis sylvercode.gitbranchquickdiff` argument
+  - Won't work in production without API finalization or insider builds
+- **Variable Substitution**: The ref setting supports complex patterns like `${git:lastTag:^v[0-9].*}` for regex-filtered tags. Variables are processed recursively if `recursive` flag is set.
+- **Repository Scoping**: Provider pattern matching uses `${repository.rootUri.fsPath}/**` to scope to specific repos in multi-root workspaces.
+- **Git URI Virtual File System**: `git.toGitUri(uri, ref)` returns special URIs (scheme: `git`) that VS Code's git extension resolves to historical file content.
+- **HEAD State Watching**: `repository.state.onDidChange` fires on many events; use it to detect branch switches and refresh providers.
+- **Performance**: Tree view debounces rapid changes via event emitter pattern; decoration provider should only fire events for changed URIs to minimize redraws.
 
 ## Configuration Schema
 
@@ -108,3 +155,26 @@ gitbranchquickdiff.ref: string (default: "main")
 ```
 
 The `ref` value undergoes variable substitution before use, enabling dynamic references based on workspace state.
+
+## Common Development Patterns
+
+### Adding a New Variable
+1. Add pattern matching in `vscode-variables.ts` `processVariables()`
+2. Use `str.replace()` or `str.matchAll()` for complex patterns
+3. Test with git repository operations (e.g., `repository.getRefs()`)
+4. Handle errors gracefully (fallback to empty string)
+
+### Modifying Tree View Display
+1. Update `ChangedFile` constructor to change label/description/icon
+2. Modify `getStatusText()`, `getStatusColor()`, or `getStatusTooltip()` for shared logic
+3. Refresh tree via `treeDataProvider.refresh()` to see changes
+
+### Changing When Providers Re-register
+1. Add event listener in `registerProvider()` function
+2. Call `reregisterQuickDiffProvider(repository)` helper
+3. Remember: Tree views refresh, decorations update, providers re-register
+
+### Handling New Git Status Types
+1. Add case to `getStatusText()`, `getStatusColor()`, `getStatusTooltip()`
+2. Consider if it should appear in decorations (see decoration strategy above)
+3. Test with staged, unstaged, and merged change scenarios
