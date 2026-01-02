@@ -3,6 +3,12 @@ import * as path from 'path';
 import * as vscodeVariables from './vscode-variables';
 import { Repository, Status, API } from './git';
 
+// Display mode for the changes tree view
+export enum DisplayMode {
+    List = 'list',
+    Tree = 'tree'
+}
+
 // Shared utility functions for status handling
 function getStatusText(status: Status): string {
     switch (status) {
@@ -70,17 +76,28 @@ function getStatusTooltip(status: Status): string {
     }
 }
 
-export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedFile> {
-    private _onDidChangeTreeData: vscode.EventEmitter<ChangedFile | undefined | null | void> = new vscode.EventEmitter<ChangedFile | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<ChangedFile | undefined | null | void> = this._onDidChangeTreeData.event;
+export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedFile | DirectoryNode> {
+    private _onDidChangeTreeData: vscode.EventEmitter<ChangedFile | DirectoryNode | undefined | null | void> = new vscode.EventEmitter<ChangedFile | DirectoryNode | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<ChangedFile | DirectoryNode | undefined | null | void> = this._onDidChangeTreeData.event;
 
     private _decorationProvider: ChangesDecorationProvider;
+    private _displayMode: DisplayMode = DisplayMode.List;
+    private _currentDirectoryNodes: DirectoryNode[] = [];
 
     constructor(
         private repository: Repository,
         private getRef: () => Promise<string>
     ) {
         this._decorationProvider = new ChangesDecorationProvider();
+    }
+
+    get displayMode(): DisplayMode {
+        return this._displayMode;
+    }
+
+    setDisplayMode(mode: 'list' | 'tree'): void {
+        this._displayMode = mode === 'list' ? DisplayMode.List : DisplayMode.Tree;
+        this.refresh();
     }
 
     get decorationProvider(): ChangesDecorationProvider {
@@ -91,12 +108,17 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
         this._onDidChangeTreeData.fire();
     }
 
-    getTreeItem(element: ChangedFile): vscode.TreeItem {
+    getCurrentDirectoryNodes(): DirectoryNode[] {
+        return this._currentDirectoryNodes;
+    }
+
+    getTreeItem(element: ChangedFile | DirectoryNode): vscode.TreeItem {
         return element;
     }
 
-    async getChildren(element?: ChangedFile): Promise<ChangedFile[]> {
-        if (element) {
+    async getChildren(element?: ChangedFile | DirectoryNode): Promise<(ChangedFile | DirectoryNode)[]> {
+        // If element is a ChangedFile, it has no children
+        if (element instanceof ChangedFile) {
             return [];
         }
 
@@ -191,7 +213,8 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                     }))
             );
 
-            return allChanges.map(change => {
+            // Create ChangedFile objects for all changes
+            const changedFiles = allChanges.map(change => {
                 const uri = change.uri;
                 const relativePath = path.relative(this.repository.rootUri.fsPath, uri.fsPath);
                 const fileName = path.basename(uri.fsPath);
@@ -211,13 +234,163 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                     '',
                     color,
                     change.status,
-                    isInDiff
+                    isInDiff,
+                    this._displayMode
                 );
             });
+
+            // Return based on display mode
+            if (this._displayMode === DisplayMode.List) {
+                this._currentDirectoryNodes = [];
+                // Sort by full path in list mode, with root files first
+                changedFiles.sort((a, b) => {
+                    // Root files (no directory) come before files in directories
+                    if (!a.directory && b.directory) {
+                        return -1;
+                    }
+                    if (a.directory && !b.directory) {
+                        return 1;
+                    }
+                    // Both are root files or both are in directories - sort by full path
+                    const pathA = a.directory ? `${a.directory}${path.sep}${a.fileName}` : a.fileName;
+                    const pathB = b.directory ? `${b.directory}${path.sep}${b.fileName}` : b.fileName;
+                    return pathA.localeCompare(pathB);
+                });
+                return changedFiles;
+            } else {
+                // Tree mode: build directory structure
+                const treeNodes = this.buildTree(changedFiles, element);
+                // Store top-level directory nodes
+                if (!element) {
+                    this._currentDirectoryNodes = treeNodes.filter(node => node instanceof DirectoryNode) as DirectoryNode[];
+                }
+                return treeNodes;
+            }
         } catch (error) {
             console.error('Failed to get changes:', error);
             return [];
         }
+    }
+
+    private buildTree(files: ChangedFile[], parentNode?: DirectoryNode): (DirectoryNode | ChangedFile)[] {
+        const parentPath = parentNode?.fullPath ?? '';
+        const directoryMap = new Map<string, ChangedFile[]>();
+        const rootFiles: ChangedFile[] = [];
+
+        // Group files by their immediate parent directory relative to parentNode
+        for (const file of files) {
+            const relativePath = file.directory;
+
+            // Skip files not in this parent directory
+            if (parentPath) {
+                if (!relativePath.startsWith(parentPath)) {
+                    continue;
+                }
+            }
+
+            // Get the remaining path after the parent
+            const remainingPath = parentPath ? relativePath.substring(parentPath.length).replace(/^[\\\/]+/, '') : relativePath;
+
+            if (!remainingPath) {
+                // File is in the current directory
+                rootFiles.push(file);
+            } else {
+                // File is in a subdirectory
+                const parts = remainingPath.split(/[\\\/]/);
+                const immediateDir = parts[0];
+                const fullDirPath = parentPath ? `${parentPath}${path.sep}${immediateDir}` : immediateDir;
+
+                if (!directoryMap.has(fullDirPath)) {
+                    directoryMap.set(fullDirPath, []);
+                }
+                directoryMap.get(fullDirPath)!.push(file);
+            }
+        }
+
+        // Check if explorer.compactFolders is enabled
+        const compactFolders = vscode.workspace.getConfiguration('explorer').get<boolean>('compactFolders', true);
+
+        // Create directory nodes
+        const directoryNodes: DirectoryNode[] = [];
+        for (const [fullPath, filesInDir] of directoryMap.entries()) {
+            let displayPath = fullPath;
+            let compactedFiles = filesInDir;
+
+            // If compactFolders is enabled, check if we can compact this directory
+            if (compactFolders) {
+                let currentPath = fullPath;
+                let currentFiles = filesInDir;
+
+                // Keep compacting while the directory has no files at its level and only one subdirectory
+                while (true) {
+                    // Count subdirectories at this level
+                    const subdirs = new Set<string>();
+                    let filesAtThisLevel = 0;
+
+                    for (const file of currentFiles) {
+                        const relativePath = file.directory;
+                        if (!relativePath.startsWith(currentPath)) {
+                            continue;
+                        }
+
+                        const remainingPath = relativePath.substring(currentPath.length).replace(/^[\\\/]+/, '');
+                        if (!remainingPath) {
+                            // File is directly in this directory
+                            filesAtThisLevel++;
+                        } else {
+                            // File is in a subdirectory
+                            const parts = remainingPath.split(/[\\\/]/);
+                            subdirs.add(parts[0]);
+                        }
+                    }
+
+                    // Can only compact if no files at this level and exactly one subdirectory
+                    if (filesAtThisLevel === 0 && subdirs.size === 1) {
+                        const subdir = Array.from(subdirs)[0];
+                        currentPath = `${currentPath}${path.sep}${subdir}`;
+                        displayPath = currentPath;
+                        // currentFiles stays the same - all files are still in subdirectories
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            const dirName = parentPath ? displayPath.substring(parentPath.length).replace(/^[\\\/]+/, '') : displayPath;
+            directoryNodes.push(new DirectoryNode(dirName, displayPath, compactedFiles, this.repository));
+        }
+
+        // Sort directories alphabetically by label
+        directoryNodes.sort((a, b) => a.label.localeCompare(b.label));
+
+        // Sort files alphabetically by name
+        rootFiles.sort((a, b) => a.fileName.localeCompare(b.fileName));
+
+        // Return directories first, then files (applies to both root and sub items)
+        return [...directoryNodes, ...rootFiles];
+    }
+}
+
+export class DirectoryNode extends vscode.TreeItem {
+    constructor(
+        public readonly label: string,
+        public readonly fullPath: string,
+        private readonly filesInDirectory: ChangedFile[],
+        private readonly repository: Repository
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.Collapsed);
+
+        this.contextValue = 'directory';
+        this.iconPath = new vscode.ThemeIcon('folder');
+
+        // Set resource URI for the directory
+        this.resourceUri = vscode.Uri.file(path.join(repository.rootUri.fsPath, fullPath));
+
+        // Count of changed files in this directory
+        const fileCount = filesInDirectory.length;
+        this.description = `${fileCount} ${fileCount === 1 ? 'file' : 'files'}`;
+
+        this.tooltip = fullPath;
     }
 }
 
@@ -307,7 +480,8 @@ export class ChangedFile extends vscode.TreeItem {
         public readonly statusIcon: string,
         public readonly color: vscode.ThemeColor | undefined,
         public readonly status: Status,
-        public readonly isInDiff: boolean
+        public readonly isInDiff: boolean,
+        displayMode: DisplayMode = DisplayMode.List
     ) {
         super(resourceUri, vscode.TreeItemCollapsibleState.None);
 
@@ -328,7 +502,8 @@ export class ChangedFile extends vscode.TreeItem {
         }
 
         // Add status letter with bullet separator in description (appears on the right)
-        if (directory) {
+        // In tree mode, don't show directory since it's already visible in the tree structure
+        if (displayMode === DisplayMode.List && directory) {
             this.description = `${directory} • ${statusDisplay}`;
         } else {
             this.description = `• ${statusDisplay}`;

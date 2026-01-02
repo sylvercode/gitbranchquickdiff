@@ -22,6 +22,8 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.defaultref`, resetRefToDefault);
     registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, refreshChanges);
     registerCommand(context, `${EXTENTION_NAME}.openChange`, openChangeCommand);
+    registerCommand(context, `${EXTENTION_NAME}.viewAsList`, setListMode);
+    registerCommand(context, `${EXTENTION_NAME}.viewAsTree`, setTreeMode);
 }
 
 async function registerToGitExtention(context: vscode.ExtensionContext) {
@@ -108,9 +110,13 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             repository,
             () => provider.getCurrentRef()
         );
+        // Set display mode from configuration
+        const savedDisplayMode = vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>('displayMode', 'list');
+        treeDataProvider.setDisplayMode(savedDisplayMode as 'list' | 'tree');
+
         const treeView = vscode.window.createTreeView(`${EXTENTION_NAME}.changes`, {
             treeDataProvider,
-            showCollapseAll: false
+            showCollapseAll: true
         });
         treeViews.set(repository, { treeDataProvider, treeView });
         context.subscriptions.push(treeView);
@@ -124,6 +130,7 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
 
         // Store references for command access
         currentTreeDataProviders.set(repository, treeDataProvider);
+        currentTreeViews.set(repository, treeView);
         currentRepositories.set(repository, repository);
         currentProviders.set(repository, provider);
     };
@@ -132,6 +139,14 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     for (const repository of git.repositories) {
         registerRepo(repository);
         setupHeadChangeListener(repository);
+    }
+
+    // Initialize display mode context
+    const savedDisplayMode = vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>('displayMode', 'list');
+    vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', savedDisplayMode);
+    // Apply saved mode to all tree data providers
+    for (const treeDataProvider of currentTreeDataProviders.values()) {
+        treeDataProvider.setDisplayMode(savedDisplayMode as 'list' | 'tree');
     }
 
     // Listen for new repositories
@@ -235,6 +250,7 @@ async function changeRef() {
 
 // Global maps to store current tree providers and repositories for command access
 const currentTreeDataProviders = new Map<git.Repository, ChangesTreeDataProvider>();
+const currentTreeViews = new Map<git.Repository, vscode.TreeView<any>>();
 const currentRepositories = new Map<git.Repository, git.Repository>();
 const currentProviders = new Map<git.Repository, CustomQuickDiffProvider>();
 
@@ -259,4 +275,20 @@ async function openChangeCommand(uri: vscode.Uri, status: git.Status) {
             return;
         }
     }
+}
+
+function setListMode() {
+    for (const treeDataProvider of currentTreeDataProviders.values()) {
+        treeDataProvider.setDisplayMode('list');
+    }
+    vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', 'list');
+    vscode.workspace.getConfiguration(EXTENTION_NAME).update('displayMode', 'list', false);
+}
+
+function setTreeMode() {
+    for (const treeDataProvider of currentTreeDataProviders.values()) {
+        treeDataProvider.setDisplayMode('tree');
+    }
+    vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', 'tree');
+    vscode.workspace.getConfiguration(EXTENTION_NAME).update('displayMode', 'tree', false);
 }

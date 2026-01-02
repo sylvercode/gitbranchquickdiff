@@ -33,6 +33,15 @@
           "type": "string",
           "default": "main",
           "description": "Name of the ref to use for comparison. Variables substitution can be use."
+        },
+        "gitbranchquickdiff.displayMode": {
+          "type": "string",
+          "enum": [
+            "list",
+            "tree"
+          ],
+          "default": "list",
+          "description": "Display mode for the changes view: list or tree."
         }
       }
     },
@@ -73,6 +82,16 @@
       {
         "command": "gitbranchquickdiff.openChange",
         "title": "Open Changes"
+      },
+      {
+        "command": "gitbranchquickdiff.viewAsList",
+        "title": "View as List",
+        "icon": "$(check)"
+      },
+      {
+        "command": "gitbranchquickdiff.viewAsTree",
+        "title": "View as Tree",
+        "icon": "$(check)"
       }
     ],
     "menus": {
@@ -83,9 +102,19 @@
           "group": "navigation"
         },
         {
+          "command": "gitbranchquickdiff.viewAsList",
+          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.displayMode == tree",
+          "group": "1_displaymode"
+        },
+        {
+          "command": "gitbranchquickdiff.viewAsTree",
+          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.displayMode == list",
+          "group": "1_displaymode"
+        },
+        {
           "command": "gitbranchquickdiff.changeref",
           "when": "view == gitbranchquickdiff.changes",
-          "group": "1_commands"
+          "group": "2_commands"
         }
       ],
       "editor/title": [

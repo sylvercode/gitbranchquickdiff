@@ -16,13 +16,26 @@ VS Code extension that replaces the default diff gutter with comparisons against
   - Provider **re-registers** (dispose + recreate) on HEAD changes (checkout) and config changes
   - Returns `undefined` when disabled to fall back to VS Code default behavior
   - Manages tree view lifecycle and refresh (tree view refreshes, not re-registers)
-  - Stores global maps (`currentTreeDataProviders`, `currentRepositories`, `currentProviders`) for command access
+  - Stores global maps (`currentTreeDataProviders`, `currentTreeViews`, `currentRepositories`, `currentProviders`) for command access
+  - Initializes display mode from saved configuration on startup
+  - Loads `displayMode` setting for each new repository's tree view
 - **[changesTreeView.ts](../src/changesTreeView.ts)**: Tree view provider for displaying changed files
+  - `DisplayMode` enum: Defines view modes (`List` or `Tree`)
   - `ChangesTreeDataProvider`: Main tree provider showing all changes (diff + worktree)
     - Displays files changed between ref and HEAD via `repository.diffBetween(ref, 'HEAD')`
     - Includes working tree changes: `indexChanges` (staged), `workingTreeChanges` (unstaged), `mergeChanges`
     - Merges and deduplicates changes by URI with worktree status tracking
+    - **Display Modes**: 
+      - **List Mode**: Flat list sorted by full path, root files first
+      - **Tree Mode**: Hierarchical directory structure with `explorer.compactFolders` support
+    - `setDisplayMode()`: Switch between list/tree modes (triggers refresh)
+    - `buildTree()`: Constructs directory hierarchy with folder compacting logic
+    - Tracks `_currentDirectoryNodes` for tree operations
     - **Critical**: Passes decoration provider to tree view for registration
+  - `DirectoryNode`: Tree item representing folders in tree mode
+    - Shows file count in description
+    - Has `resourceUri` set to directory path
+    - Collapsible state with folder icon
   - `ChangesDecorationProvider`: File decoration provider for explorer and tab headers
     - **Registered once per repository** (never re-registered, unlike QuickDiffProvider)
     - Only decorates files with diff changes (ref vs HEAD) with `⁺` superscript badge
@@ -32,6 +45,8 @@ VS Code extension that replaces the default diff gutter with comparisons against
     - Diff changes: `M⁺` (with superscript plus)
     - Diff + worktree: `M⁺, M` (comma-separated)
     - Worktree only: `M` (no superscript)
+    - **Display Context**: Directory shown only in list mode, hidden in tree mode
+    - Accepts `displayMode` parameter to conditionally format description
   - Shared utility functions: `getStatusText()`, `getStatusColor()`, `getStatusTooltip()`
   - Status indicators: M (Modified), A (Added), D (Deleted), R (Renamed), U (Untracked), I (Ignored)
   - Git-style colored icons using theme colors
@@ -116,6 +131,7 @@ Press **F5** to launch Extension Development Host with:
 - `Revert quick diff ref to user setting`: Reset workspace override to `undefined`
 - `Refresh`: Manually refresh the changes tree view
 - `Open Changes`: Open diff view for a changed file (registered via tree item command)
+- `View as List` / `View as Tree`: Toggle between list and tree display modes (shown in view menu with checkmarks)
 
 ### Testing Variable Substitution
 Set `gitbranchquickdiff.ref` to test variable patterns:
@@ -152,9 +168,11 @@ Set `gitbranchquickdiff.ref` to test variable patterns:
 ```typescript
 gitbranchquickdiff.enabled: boolean (default: true)
 gitbranchquickdiff.ref: string (default: "main")
+gitbranchquickdiff.displayMode: "list" | "tree" (default: "list")
 ```
 
 The `ref` value undergoes variable substitution before use, enabling dynamic references based on workspace state.
+The `displayMode` value is persisted across sessions to remember user's preferred view mode.
 
 ## Common Development Patterns
 
@@ -168,6 +186,14 @@ The `ref` value undergoes variable substitution before use, enabling dynamic ref
 1. Update `ChangedFile` constructor to change label/description/icon
 2. Modify `getStatusText()`, `getStatusColor()`, or `getStatusTooltip()` for shared logic
 3. Refresh tree via `treeDataProvider.refresh()` to see changes
+4. Consider display mode context when showing directory paths (list shows full path, tree doesn't)
+
+### Display Mode Implementation
+1. **List Mode**: Flat list with full paths, sorted by path with root files first
+2. **Tree Mode**: Hierarchical structure using `DirectoryNode` items
+3. **Switching Modes**: Updates `_displayMode` in provider and calls `refresh()`
+4. **Folder Compacting**: Respects `explorer.compactFolders` setting in tree mode
+5. **Sorting**: Directories always before files, both sorted alphabetically
 
 ### Changing When Providers Re-register
 1. Add event listener in `registerProvider()` function
