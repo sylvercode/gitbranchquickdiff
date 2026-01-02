@@ -87,6 +87,12 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             // Refresh tree view (which will update decorations)
             const treeView = treeViews.get(repository);
             if (treeView) {
+                const provider = providers.get(repository)?.provider;
+                if (provider) {
+                    const isEnabled = vscode.workspace.getConfiguration(EXTENTION_NAME).get<boolean>('enabled', true);
+                    const ref = await provider.getCurrentRef();
+                    treeView.treeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
+                }
                 treeView.treeDataProvider.refresh();
             }
         }));
@@ -121,6 +127,10 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             treeDataProvider,
             showCollapseAll: true
         });
+        // Set initial title with ref
+        const isEnabled = vscode.workspace.getConfiguration(EXTENTION_NAME).get<boolean>('enabled', true);
+        const ref = await provider.getCurrentRef();
+        treeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
         treeViews.set(repository, { treeDataProvider, treeView });
         context.subscriptions.push(treeView);
         console.log(`[GitBranchQuickDiff] Tree view registered`);
@@ -170,7 +180,13 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             }
 
             // Refresh all tree views (which will update decorations)
-            for (const [repository, { treeDataProvider }] of treeViews) {
+            for (const [repository, { treeDataProvider, treeView }] of treeViews) {
+                const provider = providers.get(repository)?.provider;
+                if (provider) {
+                    const isEnabled = vscode.workspace.getConfiguration(EXTENTION_NAME).get<boolean>('enabled', true);
+                    const ref = await provider.getCurrentRef();
+                    treeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
+                }
                 treeDataProvider.refresh();
             }
         }

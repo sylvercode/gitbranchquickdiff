@@ -16,12 +16,21 @@ VS Code extension that replaces the default diff gutter with comparisons against
   - Provider **re-registers** (dispose + recreate) on HEAD changes (checkout) and config changes
   - Returns `undefined` when disabled to fall back to VS Code default behavior
   - Manages tree view lifecycle and refresh (tree view refreshes, not re-registers)
+  - **Tree View Title Management**: Dynamically updates title to show current ref or deactivation state
+    - Active: `Quick Diff (main)` or `Quick Diff (branch-name)`
+    - Deactivated: `Quick Diff (deactivated)`
+    - Updates on HEAD changes, config changes, and initial registration
   - Stores global maps (`currentTreeDataProviders`, `currentTreeViews`, `currentRepositories`, `currentProviders`) for command access
   - Initializes display mode from saved configuration on startup
   - Loads `displayMode` setting for each new repository's tree view
 - **[changesTreeView.ts](../src/changesTreeView.ts)**: Tree view provider for displaying changed files
   - `DisplayMode` enum: Defines view modes (`List` or `Tree`)
+  - `MessageItem`: Tree item for displaying informational messages (e.g., activation prompt when disabled)
   - `ChangesTreeDataProvider`: Main tree provider showing all changes (diff + worktree)
+    - **Deactivation Behavior**: When `gitbranchquickdiff.enabled` is false:
+      - Returns `MessageItem` with activation prompt instead of file list
+      - Message: "Quick Diff is deactivated. Use the activate command to enable it."
+      - Clicking message executes `gitbranchquickdiff.activate` command
     - Displays files changed between ref and HEAD via `repository.diffBetween(ref, 'HEAD')`
     - Includes working tree changes: `indexChanges` (staged), `workingTreeChanges` (unstaged), `mergeChanges`
     - Merges and deduplicates changes by URI with worktree status tracking
@@ -135,13 +144,26 @@ Press **F5** to launch Extension Development Host with:
 
 ### Commands Available
 - `Use GitBranchQuickDiff` / `Deactivate GitBranchQuickDiff`: Toggle extension (workspace setting)
+  - Located in view title menu ("..." overflow)
+  - Conditionally shown based on `config.gitbranchquickdiff.enabled`
+  - When deactivated, only "activate" command is visible; all other commands are hidden
 - `Set quick diff ref`: Change comparison reference (shows input box with current value)
+  - Icon: `$(target)` (target icon)
+  - Located in view title navigation bar (header)
+  - Hidden when extension is deactivated
 - `Revert quick diff ref to user setting`: Reset workspace override to `undefined`
 - `Refresh`: Manually refresh the changes tree view
+  - Icon: `$(refresh)` (refresh icon)
+  - Located in view title navigation bar (header)
+  - Hidden when extension is deactivated
 - `Open Changes`: Open diff view for a changed file (inline icon: compare-changes)
+  - Hidden when extension is deactivated
 - `Open File`: Open file directly without diff (inline icon: go-to-file)
+  - Hidden when extension is deactivated
 - `View as List` / `View as Tree`: Toggle between list and tree display modes (shown in view menu with checkmarks)
+  - Hidden when extension is deactivated
 - `Open File by Default` / `Open Changes by Default`: Set default click action (in view title ... menu, conditionally shown)
+  - Hidden when extension is deactivated
 
 ### Testing Variable Substitution
 Set `gitbranchquickdiff.ref` to test variable patterns:
@@ -172,6 +194,11 @@ Set `gitbranchquickdiff.ref` to test variable patterns:
 - **Git URI Virtual File System**: `git.toGitUri(uri, ref)` returns special URIs (scheme: `git`) that VS Code's git extension resolves to historical file content.
 - **HEAD State Watching**: `repository.state.onDidChange` fires on many events; use it to detect branch switches and refresh providers.
 - **Performance**: Tree view debounces rapid changes via event emitter pattern; decoration provider should only fire events for changed URIs to minimize redraws.
+- **Deactivation State**: When `gitbranchquickdiff.enabled` is false:
+  - QuickDiffProvider returns `undefined` (falls back to VS Code default)
+  - Tree view shows activation message with clickable command
+  - All commands except "activate" are hidden from view menus
+  - View title displays "Quick Diff (deactivated)"
 
 ## Configuration Schema
 

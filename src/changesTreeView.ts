@@ -76,9 +76,18 @@ function getStatusTooltip(status: Status): string {
     }
 }
 
-export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedFile | DirectoryNode> {
-    private _onDidChangeTreeData: vscode.EventEmitter<ChangedFile | DirectoryNode | undefined | null | void> = new vscode.EventEmitter<ChangedFile | DirectoryNode | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<ChangedFile | DirectoryNode | undefined | null | void> = this._onDidChangeTreeData.event;
+// Message item for displaying info in the tree view
+class MessageItem extends vscode.TreeItem {
+    constructor(message: string, command?: vscode.Command) {
+        super(message, vscode.TreeItemCollapsibleState.None);
+        this.contextValue = 'message';
+        this.command = command;
+    }
+}
+
+export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedFile | DirectoryNode | MessageItem> {
+    private _onDidChangeTreeData: vscode.EventEmitter<ChangedFile | DirectoryNode | MessageItem | undefined | null | void> = new vscode.EventEmitter<ChangedFile | DirectoryNode | MessageItem | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<ChangedFile | DirectoryNode | MessageItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
     private _decorationProvider: ChangesDecorationProvider;
     private _displayMode: DisplayMode = DisplayMode.List;
@@ -112,14 +121,23 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
         return this._currentDirectoryNodes;
     }
 
-    getTreeItem(element: ChangedFile | DirectoryNode): vscode.TreeItem {
+    getTreeItem(element: ChangedFile | DirectoryNode | MessageItem): vscode.TreeItem {
         return element;
     }
 
-    async getChildren(element?: ChangedFile | DirectoryNode): Promise<(ChangedFile | DirectoryNode)[]> {
-        // If element is a ChangedFile, it has no children
-        if (element instanceof ChangedFile) {
+    async getChildren(element?: ChangedFile | DirectoryNode | MessageItem): Promise<(ChangedFile | DirectoryNode | MessageItem)[]> {
+        // MessageItems and ChangedFiles have no children
+        if (element instanceof ChangedFile || element instanceof MessageItem) {
             return [];
+        }
+
+        // Check if the extension is enabled
+        const isEnabled = vscode.workspace.getConfiguration('gitbranchquickdiff').get<boolean>('enabled', true);
+        if (!isEnabled) {
+            return [new MessageItem('Quick Diff is deactivated. Use the activate command to enable it.', {
+                command: 'gitbranchquickdiff.activate',
+                title: 'Activate'
+            })];
         }
 
         const ref = await this.getRef();
