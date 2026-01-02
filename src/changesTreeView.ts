@@ -3,6 +3,38 @@ import * as path from 'path';
 import * as vscodeVariables from './vscode-variables';
 import { Repository, Status, API } from './git';
 
+// Extended Status enum with RESTORED status
+export enum ExtendedStatus {
+    INDEX_MODIFIED,
+    INDEX_ADDED,
+    INDEX_DELETED,
+    INDEX_RENAMED,
+    INDEX_COPIED,
+
+    MODIFIED,
+    DELETED,
+    UNTRACKED,
+    IGNORED,
+    INTENT_TO_ADD,
+    INTENT_TO_RENAME,
+    TYPE_CHANGED,
+
+    ADDED_BY_US,
+    ADDED_BY_THEM,
+    DELETED_BY_US,
+    DELETED_BY_THEM,
+    BOTH_ADDED,
+    BOTH_DELETED,
+    BOTH_MODIFIED,
+
+    RESTORED
+}
+
+// Convert git.Status to ExtendedStatus
+function toExtendedStatus(status: Status): ExtendedStatus {
+    return status as unknown as ExtendedStatus;
+}
+
 // Display mode for the changes tree view
 export enum DisplayMode {
     List = 'list',
@@ -10,70 +42,116 @@ export enum DisplayMode {
 }
 
 // Shared utility functions for status handling
-function getStatusText(status: Status): string {
+function getStatusText(status: ExtendedStatus): string {
     switch (status) {
-        case Status.MODIFIED:
+        case ExtendedStatus.INDEX_MODIFIED:
+        case ExtendedStatus.MODIFIED:
             return 'M';
-        case Status.INDEX_ADDED:
-        case Status.INTENT_TO_ADD:
+        case ExtendedStatus.INDEX_ADDED:
+        case ExtendedStatus.INTENT_TO_ADD:
             return 'A';
-        case Status.INDEX_DELETED:
-        case Status.DELETED:
-        case Status.DELETED_BY_THEM:
-        case Status.DELETED_BY_US:
+        case ExtendedStatus.INDEX_DELETED:
+        case ExtendedStatus.DELETED:
+        case ExtendedStatus.DELETED_BY_THEM:
+        case ExtendedStatus.DELETED_BY_US:
             return 'D';
-        case Status.INDEX_RENAMED:
+        case ExtendedStatus.INDEX_RENAMED:
+        case ExtendedStatus.INTENT_TO_RENAME:
             return 'R';
-        case Status.UNTRACKED:
+        case ExtendedStatus.INDEX_COPIED:
+            return 'C';
+        case ExtendedStatus.TYPE_CHANGED:
+            return 'T';
+        case ExtendedStatus.UNTRACKED:
             return 'U';
-        case Status.IGNORED:
+        case ExtendedStatus.IGNORED:
             return 'I';
+        case ExtendedStatus.ADDED_BY_US:
+            return 'A';
+        case ExtendedStatus.ADDED_BY_THEM:
+            return 'A';
+        case ExtendedStatus.BOTH_ADDED:
+            return 'A';
+        case ExtendedStatus.BOTH_DELETED:
+            return 'D';
+        case ExtendedStatus.BOTH_MODIFIED:
+            return 'M';
+        case ExtendedStatus.RESTORED:
+            return 'O';
         default:
             return '?';
     }
 }
 
-function getStatusColor(status: Status): vscode.ThemeColor {
+function getStatusColor(status: ExtendedStatus): vscode.ThemeColor {
     switch (status) {
-        case Status.MODIFIED:
+        case ExtendedStatus.INDEX_MODIFIED:
+        case ExtendedStatus.MODIFIED:
+        case ExtendedStatus.TYPE_CHANGED:
+        case ExtendedStatus.INTENT_TO_RENAME:
+        case ExtendedStatus.BOTH_MODIFIED:
+        case ExtendedStatus.RESTORED:
             return new vscode.ThemeColor('gitDecoration.modifiedResourceForeground');
-        case Status.INDEX_ADDED:
-        case Status.INTENT_TO_ADD:
+        case ExtendedStatus.INDEX_ADDED:
+        case ExtendedStatus.INTENT_TO_ADD:
+        case ExtendedStatus.ADDED_BY_US:
+        case ExtendedStatus.ADDED_BY_THEM:
+        case ExtendedStatus.BOTH_ADDED:
             return new vscode.ThemeColor('gitDecoration.addedResourceForeground');
-        case Status.INDEX_DELETED:
-        case Status.DELETED:
-        case Status.DELETED_BY_THEM:
-        case Status.DELETED_BY_US:
+        case ExtendedStatus.INDEX_DELETED:
+        case ExtendedStatus.DELETED:
+        case ExtendedStatus.DELETED_BY_THEM:
+        case ExtendedStatus.DELETED_BY_US:
+        case ExtendedStatus.BOTH_DELETED:
             return new vscode.ThemeColor('gitDecoration.deletedResourceForeground');
-        case Status.INDEX_RENAMED:
+        case ExtendedStatus.INDEX_RENAMED:
+        case ExtendedStatus.INDEX_COPIED:
             return new vscode.ThemeColor('gitDecoration.renamedResourceForeground');
-        case Status.UNTRACKED:
+        case ExtendedStatus.UNTRACKED:
             return new vscode.ThemeColor('gitDecoration.untrackedResourceForeground');
-        case Status.IGNORED:
+        case ExtendedStatus.IGNORED:
             return new vscode.ThemeColor('gitDecoration.ignoredResourceForeground');
         default:
             return new vscode.ThemeColor('gitDecoration.modifiedResourceForeground');
     }
 }
 
-function getStatusTooltip(status: Status): string {
+function getStatusTooltip(status: ExtendedStatus): string {
     switch (status) {
-        case Status.MODIFIED:
+        case ExtendedStatus.INDEX_MODIFIED:
+        case ExtendedStatus.MODIFIED:
             return 'Modified⁺';
-        case Status.INDEX_ADDED:
-        case Status.INTENT_TO_ADD:
+        case ExtendedStatus.INDEX_ADDED:
+        case ExtendedStatus.INTENT_TO_ADD:
             return 'Added⁺';
-        case Status.INDEX_DELETED:
-        case Status.DELETED:
-        case Status.DELETED_BY_THEM:
-        case Status.DELETED_BY_US:
+        case ExtendedStatus.INDEX_DELETED:
+        case ExtendedStatus.DELETED:
+        case ExtendedStatus.DELETED_BY_THEM:
+        case ExtendedStatus.DELETED_BY_US:
             return 'Deleted⁺';
-        case Status.INDEX_RENAMED:
+        case ExtendedStatus.INDEX_RENAMED:
+        case ExtendedStatus.INTENT_TO_RENAME:
             return 'Renamed⁺';
-        case Status.UNTRACKED:
+        case ExtendedStatus.INDEX_COPIED:
+            return 'Copied⁺';
+        case ExtendedStatus.TYPE_CHANGED:
+            return 'Type Changed⁺';
+        case ExtendedStatus.UNTRACKED:
             return 'Untracked⁺';
-        case Status.IGNORED:
+        case ExtendedStatus.IGNORED:
             return 'Ignored⁺';
+        case ExtendedStatus.ADDED_BY_US:
+            return 'Added By Us⁺';
+        case ExtendedStatus.ADDED_BY_THEM:
+            return 'Added By Them⁺';
+        case ExtendedStatus.BOTH_ADDED:
+            return 'Both Added⁺';
+        case ExtendedStatus.BOTH_DELETED:
+            return 'Both Deleted⁺';
+        case ExtendedStatus.BOTH_MODIFIED:
+            return 'Both Modified⁺';
+        case ExtendedStatus.RESTORED:
+            return 'Restored⁺';
         default:
             return 'Unknown⁺';
     }
@@ -149,53 +227,93 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
         }
 
         try {
-            // Get changes between ref and HEAD
+            // Get changes between ref and HEAD (committed differences)
             const diffChanges = await this.repository.diffBetween(ref, 'HEAD');
+
+            // Get changes between ref and working tree (to detect restored files)
+            const diffWithWorkingTree = await this.repository.diffWith(ref);
 
             // Get all working tree changes (staged, unstaged, and untracked)
             const indexChanges = this.repository.state.indexChanges;
             const workingTreeChanges = this.repository.state.workingTreeChanges;
             const mergeChanges = this.repository.state.mergeChanges;
 
-            // Track which files are only in working tree (not in diff)
+            // Track which files are in diff between ref and HEAD
             const diffChangeUris = new Set<string>();
             for (const change of diffChanges) {
                 diffChangeUris.add(change.uri.toString());
             }
 
-            // Track worktree statuses
-            const worktreeStatusMap = new Map<string, Status>();
+            // Track which files are in diff between ref and working tree
+            const diffWithWorkingTreeUris = new Set<string>();
+            for (const change of diffWithWorkingTree) {
+                diffWithWorkingTreeUris.add(change.uri.toString());
+            }
+
+            // Track all git statuses separately (staged, unstaged, merge)
+            const indexStatusMap = new Map<string, Status>();
+            const workingTreeStatusMap = new Map<string, Status>();
+            const mergeStatusMap = new Map<string, Status>();
+
             for (const change of indexChanges) {
-                worktreeStatusMap.set(change.uri.toString(), change.status);
+                indexStatusMap.set(change.uri.toString(), change.status);
             }
             for (const change of workingTreeChanges) {
-                worktreeStatusMap.set(change.uri.toString(), change.status);
+                workingTreeStatusMap.set(change.uri.toString(), change.status);
             }
             for (const change of mergeChanges) {
-                worktreeStatusMap.set(change.uri.toString(), change.status);
+                mergeStatusMap.set(change.uri.toString(), change.status);
             }
 
             // Combine all changes and deduplicate by URI
-            const allChangesMap = new Map<string, { uri: vscode.Uri; originalUri: vscode.Uri; status: Status; worktreeStatus?: Status }>();
+            const allChangesMap = new Map<string, { uri: vscode.Uri; originalUri: vscode.Uri; status: ExtendedStatus; indexStatus?: Status; workingTreeStatus?: Status; mergeStatus?: Status }>();
 
-            // Add diff changes (between ref and HEAD)
+            // Add diff changes (between ref and HEAD) - check for restored files
             for (const change of diffChanges) {
+                // Check if this is a "restored" file - changed between ref and HEAD but working tree matches ref
+                let status: ExtendedStatus;
+                if (!diffWithWorkingTreeUris.has(change.uri.toString()) &&
+                    change.status !== Status.INDEX_ADDED &&
+                    change.status !== Status.INTENT_TO_ADD) {
+                    // File is different between ref and HEAD, but working tree matches ref
+                    // This means the file was restored to the ref state
+                    status = ExtendedStatus.RESTORED;
+                } else {
+                    status = toExtendedStatus(change.status);
+                }
+
                 allChangesMap.set(change.uri.toString(), {
                     uri: change.uri,
                     originalUri: change.originalUri,
-                    status: change.status,
-                    worktreeStatus: worktreeStatusMap.get(change.uri.toString())
+                    status: status,
+                    indexStatus: indexStatusMap.get(change.uri.toString()),
+                    workingTreeStatus: workingTreeStatusMap.get(change.uri.toString()),
+                    mergeStatus: mergeStatusMap.get(change.uri.toString())
                 });
             }
 
-            // Add index changes (staged)
+            // Add index changes (staged) - check for restored files
             for (const change of indexChanges) {
                 if (!allChangesMap.has(change.uri.toString())) {
+                    // Check if this is a "restored" file - in index but equal to ref in working tree
+                    let status: ExtendedStatus;
+                    if (!diffWithWorkingTreeUris.has(change.uri.toString()) &&
+                        change.status !== Status.INDEX_ADDED &&
+                        change.status !== Status.INTENT_TO_ADD) {
+                        // File is in index but not in diff between ref and working tree, and it's not a new file
+                        // This means the working tree content matches the ref state (restored)
+                        status = ExtendedStatus.RESTORED;
+                    } else {
+                        status = toExtendedStatus(change.status);
+                    }
+
                     allChangesMap.set(change.uri.toString(), {
                         uri: change.uri,
                         originalUri: change.originalUri,
-                        status: change.status,
-                        worktreeStatus: change.status
+                        status: status,
+                        indexStatus: change.status,
+                        workingTreeStatus: workingTreeStatusMap.get(change.uri.toString()),
+                        mergeStatus: mergeStatusMap.get(change.uri.toString())
                     });
                 }
             }
@@ -203,11 +321,26 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
             // Add working tree changes (unstaged)
             for (const change of workingTreeChanges) {
                 if (!allChangesMap.has(change.uri.toString())) {
+                    // Check if this is a "restored" file - in working tree but equal to ref
+                    let status: ExtendedStatus;
+                    if (!diffWithWorkingTreeUris.has(change.uri.toString()) &&
+                        change.status !== Status.INDEX_ADDED &&
+                        change.status !== Status.INTENT_TO_ADD &&
+                        change.status !== Status.UNTRACKED) {
+                        // File is in working tree but not in diff between ref and working tree, and it's not a new file
+                        // This means the working tree content matches the ref state (restored)
+                        status = ExtendedStatus.RESTORED;
+                    } else {
+                        status = toExtendedStatus(change.status);
+                    }
+
                     allChangesMap.set(change.uri.toString(), {
                         uri: change.uri,
                         originalUri: change.originalUri,
-                        status: change.status,
-                        worktreeStatus: change.status
+                        status: status,
+                        indexStatus: indexStatusMap.get(change.uri.toString()),
+                        workingTreeStatus: change.status,
+                        mergeStatus: mergeStatusMap.get(change.uri.toString())
                     });
                 }
             }
@@ -215,28 +348,31 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
             // Add merge changes
             for (const change of mergeChanges) {
                 if (!allChangesMap.has(change.uri.toString())) {
+                    // Check if this is a "restored" file - in merge changes but equal to ref
+                    let status: ExtendedStatus;
+                    if (!diffWithWorkingTreeUris.has(change.uri.toString()) &&
+                        change.status !== Status.ADDED_BY_US &&
+                        change.status !== Status.ADDED_BY_THEM &&
+                        change.status !== Status.BOTH_ADDED) {
+                        // File is in merge changes but not in diff between ref and working tree, and it's not a new file
+                        // This means the working tree content matches the ref state (restored)
+                        status = ExtendedStatus.RESTORED;
+                    } else {
+                        status = toExtendedStatus(change.status);
+                    }
+
                     allChangesMap.set(change.uri.toString(), {
                         uri: change.uri,
                         originalUri: change.originalUri,
-                        status: change.status,
-                        worktreeStatus: change.status
+                        status: status,
+                        indexStatus: indexStatusMap.get(change.uri.toString()),
+                        workingTreeStatus: workingTreeStatusMap.get(change.uri.toString()),
+                        mergeStatus: change.status
                     });
                 }
             }
 
             const allChanges = Array.from(allChangesMap.values());
-
-            // Update the decoration provider with only diff changes (not working tree only)
-            this._decorationProvider.setChanges(
-                allChanges
-                    .filter(c => diffChangeUris.has(c.uri.toString()))
-                    .map(c => ({
-                        uri: c.uri,
-                        status: c.status,
-                        statusText: getStatusText(c.status),
-                        color: getStatusColor(c.status)
-                    }))
-            );
 
             // Create ChangedFile objects for all changes
             const changedFiles = allChanges.map(change => {
@@ -246,8 +382,33 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                 const dirName = path.dirname(relativePath);
 
                 const statusText = getStatusText(change.status);
-                const worktreeStatusText = change.worktreeStatus ? getStatusText(change.worktreeStatus) : undefined;
-                const color = getStatusColor(change.status);
+
+                // Build combined git status text from all available statuses
+                const gitStatuses: string[] = [];
+                if (change.indexStatus !== undefined) {
+                    gitStatuses.push(getStatusText(toExtendedStatus(change.indexStatus)));
+                }
+                if (change.workingTreeStatus !== undefined) {
+                    gitStatuses.push(getStatusText(toExtendedStatus(change.workingTreeStatus)));
+                }
+                if (change.mergeStatus !== undefined) {
+                    gitStatuses.push(getStatusText(toExtendedStatus(change.mergeStatus)));
+                }
+                const gitStatusText = gitStatuses.length > 0 ? gitStatuses.join(', ') : undefined;
+
+                // Prioritize git status (index/workingTree/merge) for color, fallback to ref status
+                let colorStatus: ExtendedStatus;
+                if (change.indexStatus !== undefined) {
+                    colorStatus = toExtendedStatus(change.indexStatus);
+                } else if (change.workingTreeStatus !== undefined) {
+                    colorStatus = toExtendedStatus(change.workingTreeStatus);
+                } else if (change.mergeStatus !== undefined) {
+                    colorStatus = toExtendedStatus(change.mergeStatus);
+                } else {
+                    colorStatus = change.status;
+                }
+                const color = getStatusColor(colorStatus);
+
                 const isInDiff = diffChangeUris.has(change.uri.toString());
 
                 return new ChangedFile(
@@ -256,7 +417,7 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                     uri,
                     change.originalUri,
                     statusText,
-                    worktreeStatusText,
+                    gitStatusText,
                     '',
                     color,
                     change.status,
@@ -264,6 +425,19 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                     this._displayMode
                 );
             });
+
+            // Update the decoration provider with only diff changes (not working tree only)
+            // Use the colors already calculated in the ChangedFile objects
+            this._decorationProvider.setChanges(
+                changedFiles
+                    .filter(f => f.isInDiff)
+                    .map(f => ({
+                        uri: f.resourceUri,
+                        status: f.status,
+                        statusText: f.statusText,
+                        color: f.color!
+                    }))
+            );
 
             // Return based on display mode
             if (this._displayMode === DisplayMode.List) {
@@ -422,7 +596,7 @@ export class DirectoryNode extends vscode.TreeItem {
 
 interface ChangeInfo {
     uri: vscode.Uri;
-    status: Status;
+    status: ExtendedStatus;
     statusText: string;
     color: vscode.ThemeColor;
 }
@@ -503,10 +677,10 @@ export class ChangedFile extends vscode.TreeItem {
         public readonly resourceUri: vscode.Uri,
         public readonly originalUri: vscode.Uri,
         public readonly statusText: string,
-        public readonly worktreeStatusText: string | undefined,
+        public readonly gitStatusText: string | undefined,
         public readonly statusIcon: string,
         public readonly color: vscode.ThemeColor | undefined,
-        public readonly status: Status,
+        public readonly status: ExtendedStatus,
         public readonly isInDiff: boolean,
         displayMode: DisplayMode = DisplayMode.List
     ) {
@@ -520,8 +694,8 @@ export class ChangedFile extends vscode.TreeItem {
         if (isInDiff) {
             // File has changes in diff (ref vs HEAD)
             statusDisplay = `${statusText}⁺`;
-            if (worktreeStatusText) {
-                statusDisplay += `, ${worktreeStatusText}`;
+            if (gitStatusText) {
+                statusDisplay += `, ${gitStatusText}`;
             }
         } else {
             // File only has worktree changes
@@ -563,17 +737,17 @@ export class ChangedFile extends vscode.TreeItem {
     }
 }
 
-export async function openChange(git: API, repository: Repository, getRef: () => Promise<string>, uri: vscode.Uri, originalUri: vscode.Uri, status: Status) {
+export async function openChange(git: API, repository: Repository, getRef: () => Promise<string>, uri: vscode.Uri, originalUri: vscode.Uri, status: ExtendedStatus) {
     const ref = await getRef();
 
-    if (status === Status.INDEX_DELETED || status === Status.DELETED || status === Status.DELETED_BY_THEM || status === Status.DELETED_BY_US) {
+    if (status === ExtendedStatus.INDEX_DELETED || status === ExtendedStatus.DELETED || status === ExtendedStatus.DELETED_BY_THEM || status === ExtendedStatus.DELETED_BY_US) {
         // For deleted files, show the file from the ref
         const gitUri = git.toGitUri(uri, ref);
         await vscode.commands.executeCommand('vscode.open', gitUri);
-    } else if (status === Status.UNTRACKED || status === Status.INDEX_ADDED || status === Status.INTENT_TO_ADD) {
+    } else if (status === ExtendedStatus.UNTRACKED || status === ExtendedStatus.INDEX_ADDED || status === ExtendedStatus.INTENT_TO_ADD) {
         // For untracked or newly added files, just open the file
         await vscode.commands.executeCommand('vscode.open', uri);
-    } else if (status === Status.INDEX_RENAMED) {
+    } else if (status === ExtendedStatus.INDEX_RENAMED) {
         // For renamed files, use originalUri for the left side (old file from ref)
         try {
             const originalGitUri = git.toGitUri(originalUri, ref);

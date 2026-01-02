@@ -24,6 +24,9 @@ VS Code extension that replaces the default diff gutter with comparisons against
   - Initializes display mode from saved configuration on startup
   - Loads `displayMode` setting for each new repository's tree view
 - **[changesTreeView.ts](../src/changesTreeView.ts)**: Tree view provider for displaying changed files
+  - `ExtendedStatus` enum: Extends Git Status with `RESTORED` status (28 values total: 0-27)
+    - `RESTORED`: Files in git state (staged/unstaged/merge) that match ref content
+  - `toExtendedStatus()`: Conversion function from git.Status to ExtendedStatus
   - `DisplayMode` enum: Defines view modes (`List` or `Tree`)
   - `MessageItem`: Tree item for displaying informational messages (e.g., activation prompt when disabled)
   - `ChangesTreeDataProvider`: Main tree provider showing all changes (diff + worktree)
@@ -33,7 +36,9 @@ VS Code extension that replaces the default diff gutter with comparisons against
       - Clicking message executes `gitbranchquickdiff.activate` command
     - Displays files changed between ref and HEAD via `repository.diffBetween(ref, 'HEAD')`
     - Includes working tree changes: `indexChanges` (staged), `workingTreeChanges` (unstaged), `mergeChanges`
-    - Merges and deduplicates changes by URI with worktree status tracking
+    - Uses `repository.diffWith(ref)` to detect RESTORED files (working tree matches ref but differs from HEAD)
+    - Merges and deduplicates changes by URI with separate status tracking (indexStatus, workingTreeStatus, mergeStatus)
+    - **RESTORED Detection**: File in git state but not in diffWith(ref), excluding newly added files
     - **Display Modes**: 
       - **List Mode**: Flat list sorted by full path, root files first
       - **Tree Mode**: Hierarchical directory structure with `explorer.compactFolders` support
@@ -45,27 +50,33 @@ VS Code extension that replaces the default diff gutter with comparisons against
     - Shows file count in description
     - Has `resourceUri` set to directory path
     - Collapsible state with folder icon
-    - **Inline Action**: `Open Changes` command with `request-changes` icon opens all files in directory in multi-file diff view
+    - **Inline Actions**: 
+      - `Open Changes` command with `request-changes` icon opens all files in directory in multi-file diff view
+      - `Restore` command with `discard` icon restores all files in directory to ref state
   - `ChangesDecorationProvider`: File decoration provider for explorer and tab headers
     - **Registered once per repository** (never re-registered, unlike QuickDiffProvider)
     - Only decorates files with diff changes (ref vs HEAD) with `⁺` superscript badge
     - Does not decorate worktree-only changes (avoids conflicts with built-in Git extension)
     - Updates decorations via `setChanges()` when tree refreshes
+    - **Color Priority**: Uses git status color first (index → workingTree → merge → ref status)
+    - Decoration update happens **after** ChangedFile creation to reuse color logic
   - `ChangedFile`: Tree item with smart status display and configurable click behavior:
     - Diff changes: `M⁺` (with superscript plus)
-    - Diff + worktree: `M⁺, M` (comma-separated)
+    - Diff + worktree: `M⁺, M` (comma-separated, shows all git statuses)
     - Worktree only: `M` (no superscript)
+    - **Color Priority**: Calculated during creation - git status first (index → workingTree → merge), fallback to ref status
     - **Display Context**: Directory shown only in list mode, hidden in tree mode
     - Accepts `displayMode` parameter to conditionally format description
     - **Click Behavior**: Reads `gitbranchquickdiff.defaultAction` setting in constructor to set command
       - `openChanges` (default): Clicking opens diff view
       - `openFile`: Clicking opens file directly
       - Setting is read on-demand, no refresh needed when changed
-    - **Inline Actions**: Two icon commands conditionally shown based on default action:
+    - **Inline Actions**: Multiple icon commands conditionally shown:
       - `openChange` with `compare-changes` icon: Opens diff (hidden if default action)
       - `openFile` with `go-to-file` icon: Opens file directly (hidden if default action)
+      - `restoreFile` with `discard` icon: Restores file to ref state with confirmation
   - Shared utility functions: `getStatusText()`, `getStatusColor()`, `getStatusTooltip()`
-  - Status indicators: M (Modified), A (Added), D (Deleted), R (Renamed), U (Untracked), I (Ignored)
+  - Status indicators: M (Modified), A (Added), D (Deleted), R (Renamed), C (Copied), T (Type Changed), U (Untracked), I (Ignored), O (Restored), AA (Both Added), DD (Both Deleted), UU (Both Modified)
   - Git-style colored icons using theme colors
   - `openChange()`: Helper function to open diff view or historical file content for deleted files
 - **[gitApi.ts](../src/gitApi.ts)**: Wrapper for VS Code's built-in Git extension API
@@ -101,30 +112,47 @@ VS Code extension that replaces the default diff gutter with comparisons against
 
 3. **Configuration Scope**: All settings are workspace-scoped (third param `false` in `update()` calls) to allow per-workspace refs.
 
-4. **Change Tracking Strategy**: Tree view shows union of two sources:
+4. **Change Tracking Strategy**: Tree view shows union of multiple sources:
    - **Diff changes** (ref vs HEAD): `repository.diffBetween(ref, 'HEAD')` - committed differences
+   - **Diff with working tree** (ref vs working tree): `repository.diffWith(ref)` - used for RESTORED detection
    - **Worktree changes**: Union of `indexChanges`, `workingTreeChanges`, `mergeChanges` - uncommitted work
-   - Deduplication by URI string (`uri.toString()`) with worktree status tracked separately
+   - Deduplication by URI string (`uri.toString()`) with separate status tracking (indexStatus, workingTreeStatus, mergeStatus)
    - Track `isInDiff` flag to distinguish diff changes from worktree-only changes
+   - **RESTORED Detection**: File appears in git state but not in diffWith(ref) and is not a newly added file
 
 5. **Decoration Strategy** (prevents conflicts with built-in Git extension):
    - Only files with diff changes (ref vs HEAD) get `⁺` badge decorations in explorer/tabs
    - Worktree-only changes appear in tree view but **not decorated** in explorer
    - Uses `Map<string, ChangeInfo>` keyed by `uri.toString()` for decoration tracking
    - Fires `onDidChangeFileDecorations` only for changed URIs (optimization)
+   - **Color Priority**: Git status (index → workingTree → merge) takes precedence over ref status
+   - Decoration update happens **after** ChangedFile creation to reuse the same color calculation logic
 
-6. **Provider Registration Pattern**: One provider instance per repository:
+6. **Status Enum Handling**: 
+   - **Critical**: git.Status enum has INDEX_MODIFIED=0, requiring explicit `!== undefined` checks (not truthy evaluation)
+   - ExtendedStatus enum in changesTreeView.ts extends Status with RESTORED value
+   - Never modify external git.d.ts file - use conversion function `toExtendedStatus()`
+   - All 28 status values (0-27) must be handled in getStatusText/Color/Tooltip functions
+
+7. **Provider Registration Pattern**: One provider instance per repository:
    - Pattern matching: `{ pattern: '${repository.rootUri.fsPath}/**' }` scopes to specific repo
    - Stored in `Map<git.Repository, { provider, disposable }>` for lifecycle management
    - Tree views and providers stored in separate maps for command access
 
-7. **Git URI Generation**: Use `git.toGitUri(uri, ref)` to create virtual URIs for historical file versions in diffs.
+8. **Git URI Generation**: Use `git.toGitUri(uri, ref)` to create virtual URIs for historical file versions in diffs.
 
-8. **Multi-File Diff Views**: Use `vscode.changes` command to open multiple files in a unified diff view:
+9. **Multi-File Diff Views**: Use `vscode.changes` command to open multiple files in a unified diff view:
    - Format: `vscode.commands.executeCommand('vscode.changes', title, changes)`
    - Changes array: `[URI, URI, URI][]` where each tuple is `[label, left (old), right (new)]`
    - Used by "Open All Changes" command (all files) and "Open Changes" on directories (directory files)
    - Skip deleted files to avoid errors in multi-file view
+
+10. **Restore Functionality**: Files can be restored to ref state:
+    - **Added files**: Deleted (they don't exist in ref)
+    - **Renamed files**: New file deleted, old file restored at original path
+    - **Modified/deleted files**: Content restored from ref using `repository.show(ref, path)`
+    - Confirmation dialog shows before restore (with file count for directories)
+    - No automatic staging after restore
 
 ## Development Workflow
 
@@ -182,6 +210,14 @@ Press **F5** to launch Extension Development Host with:
 - `View as List` / `View as Tree`: Toggle between list and tree display modes (shown in view menu with checkmarks)
   - Hidden when extension is deactivated
 - `Open File by Default` / `Open Changes by Default`: Set default click action (in view title ... menu, conditionally shown)
+  - Hidden when extension is deactivated
+- `Restore File`: Restore a single file to ref state (inline icon: discard)
+  - Shows confirmation dialog before restore
+  - Deletes added files, restores renamed files to original path, restores content for modified files
+  - Hidden when extension is deactivated
+- `Restore Directory`: Restore all files in a directory to ref state (inline icon: discard)
+  - Shows confirmation dialog with file count before restore
+  - Applies same restore logic as single file to all files in directory
   - Hidden when extension is deactivated
 
 ### Testing Variable Substitution

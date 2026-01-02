@@ -126,6 +126,16 @@
       {
         "command": "gitbranchquickdiff.setDefaultActionOpenChanges",
         "title": "Open Changes by Default"
+      },
+      {
+        "command": "gitbranchquickdiff.restoreFile",
+        "title": "Restore to Ref State",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "gitbranchquickdiff.restoreDirectory",
+        "title": "Restore to Ref State",
+        "icon": "$(discard)"
       }
     ],
     "menus": {
@@ -191,6 +201,16 @@
           "command": "gitbranchquickdiff.openDirectoryChanges",
           "when": "view == gitbranchquickdiff.changes && viewItem == directory && config.gitbranchquickdiff.enabled",
           "group": "inline@1"
+        },
+        {
+          "command": "gitbranchquickdiff.restoreFile",
+          "when": "view == gitbranchquickdiff.changes && viewItem =~ /^changedFile:/ && config.gitbranchquickdiff.enabled",
+          "group": "inline@3"
+        },
+        {
+          "command": "gitbranchquickdiff.restoreDirectory",
+          "when": "view == gitbranchquickdiff.changes && viewItem == directory && config.gitbranchquickdiff.enabled",
+          "group": "inline@2"
         }
       ]
     }

@@ -4,7 +4,7 @@ import * as vscodeVariables from './vscode-variables';
 import { getGitAPI } from './gitApi';
 import * as git from './git';
 import { Status } from './git';
-import { ChangedFile, ChangesTreeDataProvider, DirectoryNode, openChange } from './changesTreeView';
+import { ChangedFile, ChangesTreeDataProvider, DirectoryNode, openChange, ExtendedStatus } from './changesTreeView';
 
 export const EXTENTION_NAME = 'gitbranchquickdiff';
 
@@ -31,6 +31,8 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.viewAsTree`, setTreeMode);
     registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenFile`, setDefaultActionOpenFile);
     registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenChanges`, setDefaultActionOpenChanges);
+    registerCommand(context, `${EXTENTION_NAME}.restoreFile`, restoreFileCommand);
+    registerCommand(context, `${EXTENTION_NAME}.restoreDirectory`, restoreDirectoryCommand);
 }
 
 async function registerToGitExtention(context: vscode.ExtensionContext) {
@@ -302,10 +304,10 @@ async function openChangeCommand(fileItem: ChangedFile) {
 
 async function openFileCommand(fileItem: ChangedFile) {
     // For deleted files, use openChange to show the file from the ref
-    if (fileItem.status === Status.INDEX_DELETED ||
-        fileItem.status === Status.DELETED ||
-        fileItem.status === Status.DELETED_BY_THEM ||
-        fileItem.status === Status.DELETED_BY_US) {
+    if (fileItem.status === ExtendedStatus.INDEX_DELETED ||
+        fileItem.status === ExtendedStatus.DELETED ||
+        fileItem.status === ExtendedStatus.DELETED_BY_THEM ||
+        fileItem.status === ExtendedStatus.DELETED_BY_US) {
         // Get the Git API
         const gitApi = await getGitAPI();
         if (!gitApi) {
@@ -336,20 +338,20 @@ function buildChangesArray(
         const gitUri = gitApi.toGitUri(file.resourceUri, ref);
 
         // For deleted files: [label, left (old from ref), right (null - doesn't exist)]
-        if (file.status === Status.INDEX_DELETED ||
-            file.status === Status.DELETED ||
-            file.status === Status.DELETED_BY_THEM ||
-            file.status === Status.DELETED_BY_US) {
+        if (file.status === ExtendedStatus.INDEX_DELETED ||
+            file.status === ExtendedStatus.DELETED ||
+            file.status === ExtendedStatus.DELETED_BY_THEM ||
+            file.status === ExtendedStatus.DELETED_BY_US) {
             changes.push([file.resourceUri, gitUri, undefined]);
         }
         // For added/untracked files: [label, left (null - didn't exist), right (current)]
-        else if (file.status === Status.UNTRACKED ||
-            file.status === Status.INDEX_ADDED ||
-            file.status === Status.INTENT_TO_ADD) {
+        else if (file.status === ExtendedStatus.UNTRACKED ||
+            file.status === ExtendedStatus.INDEX_ADDED ||
+            file.status === ExtendedStatus.INTENT_TO_ADD) {
             changes.push([file.resourceUri, undefined, file.resourceUri]);
         }
         // For renamed files: [label, left (old from ref with original path), right (current with new path)]
-        else if (file.status === Status.INDEX_RENAMED) {
+        else if (file.status === ExtendedStatus.INDEX_RENAMED) {
             // For renamed files, originalUri has the old path and resourceUri has the new path
             const originalGitUri = gitApi.toGitUri(file.originalUri, ref);
             changes.push([file.resourceUri, originalGitUri, file.resourceUri]);
@@ -465,6 +467,194 @@ async function openAllChangesCommand() {
         // Open all changes in multi-file diff view
         if (changes.length > 0) {
             await vscode.commands.executeCommand('vscode.changes', `${ref} ↔ Working Tree`, changes);
+        }
+    }
+}
+
+async function restoreFileCommand(fileItem: ChangedFile) {
+    // Get the Git API
+    const gitApi = await getGitAPI();
+    if (!gitApi) {
+        vscode.window.showErrorMessage('Git extension not found');
+        return;
+    }
+
+    // Find the repository for this URI
+    for (const [repository, provider] of currentProviders.entries()) {
+        if (fileItem.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
+            // Show confirmation dialog
+            const fileName = path.basename(fileItem.resourceUri.fsPath);
+            const ref = await provider.getCurrentRef();
+            const answer = await vscode.window.showWarningMessage(
+                `Restore "${fileName}" to the state of ${ref}?`,
+                { modal: true },
+                'Restore'
+            );
+
+            if (answer === 'Restore') {
+                try {
+                    // Check if file is added (doesn't exist in ref) or renamed
+                    const isAdded = fileItem.status === ExtendedStatus.INDEX_ADDED ||
+                        fileItem.status === ExtendedStatus.INTENT_TO_ADD ||
+                        fileItem.status === ExtendedStatus.UNTRACKED ||
+                        fileItem.status === ExtendedStatus.ADDED_BY_US ||
+                        fileItem.status === ExtendedStatus.ADDED_BY_THEM ||
+                        fileItem.status === ExtendedStatus.BOTH_ADDED;
+                    const isRenamed = fileItem.status === ExtendedStatus.INDEX_RENAMED;
+
+                    if (isAdded) {
+                        // For added files, delete them (they don't exist in ref)
+                        await vscode.workspace.fs.delete(fileItem.resourceUri);
+                    } else if (isRenamed) {
+                        // For renamed files: delete new file, restore old file
+                        await vscode.workspace.fs.delete(fileItem.resourceUri);
+
+                        // Get the relative path for the original file
+                        const originalRelativePath = path.relative(repository.rootUri.fsPath, fileItem.originalUri.fsPath);
+                        const content = await repository.show(ref, originalRelativePath);
+                        await vscode.workspace.fs.writeFile(fileItem.originalUri, Buffer.from(content, 'utf8'));
+                    } else {
+                        // For modified/deleted files, restore content from ref
+                        const relativePath = path.relative(repository.rootUri.fsPath, fileItem.resourceUri.fsPath);
+                        const content = await repository.show(ref, relativePath);
+                        await vscode.workspace.fs.writeFile(fileItem.resourceUri, Buffer.from(content, 'utf8'));
+                    }
+
+                    // Refresh the tree view
+                    const treeDataProvider = currentTreeDataProviders.get(repository);
+                    if (treeDataProvider) {
+                        treeDataProvider.refresh();
+                    }
+
+                    vscode.window.showInformationMessage(`Restored "${fileName}" to ${ref} state`);
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to restore file: ${error}`);
+                }
+            }
+            return;
+        }
+    }
+}
+
+async function restoreDirectoryCommand(directoryNode: any) {
+    // Get the Git API
+    const gitApi = await getGitAPI();
+    if (!gitApi) {
+        vscode.window.showErrorMessage('Git extension not found');
+        return;
+    }
+
+    // Check if it's a DirectoryNode
+    if (!(directoryNode instanceof DirectoryNode)) {
+        return;
+    }
+
+    // Check if resourceUri exists
+    if (!directoryNode.resourceUri) {
+        return;
+    }
+
+    // Find the repository for this directory
+    for (const [repository, provider] of currentProviders.entries()) {
+        if (directoryNode.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
+            // Get all files in this directory from the tree data provider
+            const treeDataProvider = currentTreeDataProviders.get(repository);
+            if (!treeDataProvider) {
+                return;
+            }
+
+            // Get children of this directory (recursive to get all files)
+            const getFilesRecursive = async (node: any): Promise<ChangedFile[]> => {
+                const children = await treeDataProvider.getChildren(node);
+                const files: ChangedFile[] = [];
+                for (const child of children) {
+                    if (child instanceof DirectoryNode) {
+                        // Recursively get files from subdirectories
+                        files.push(...await getFilesRecursive(child));
+                    } else if (child instanceof ChangedFile) {
+                        // It's a ChangedFile
+                        files.push(child);
+                    }
+                }
+                return files;
+            };
+
+            const files = await getFilesRecursive(directoryNode);
+
+            if (files.length === 0) {
+                return;
+            }
+
+            // Show confirmation dialog with file count
+            const ref = await provider.getCurrentRef();
+            const message = files.length === 1
+                ? `Restore 1 file to the state of ${ref}?`
+                : `Restore ${files.length} files to the state of ${ref}?`;
+
+            const answer = await vscode.window.showWarningMessage(
+                message,
+                { modal: true },
+                'Restore'
+            );
+
+            if (answer === 'Restore') {
+                let successCount = 0;
+                let failCount = 0;
+
+                for (const file of files) {
+                    try {
+                        // Check if file is added (doesn't exist in ref) or renamed
+                        const isAdded = file.status === ExtendedStatus.INDEX_ADDED ||
+                            file.status === ExtendedStatus.INTENT_TO_ADD ||
+                            file.status === ExtendedStatus.UNTRACKED ||
+                            file.status === ExtendedStatus.ADDED_BY_US ||
+                            file.status === ExtendedStatus.ADDED_BY_THEM ||
+                            file.status === ExtendedStatus.BOTH_ADDED;
+                        const isRenamed = file.status === ExtendedStatus.INDEX_RENAMED;
+
+                        if (isAdded) {
+                            // For added files, delete them (they don't exist in ref)
+                            await vscode.workspace.fs.delete(file.resourceUri);
+                        } else if (isRenamed) {
+                            // For renamed files: delete new file, restore old file
+                            await vscode.workspace.fs.delete(file.resourceUri);
+
+                            // Get the relative path for the original file
+                            const originalRelativePath = path.relative(repository.rootUri.fsPath, file.originalUri.fsPath);
+                            const content = await repository.show(ref, originalRelativePath);
+                            await vscode.workspace.fs.writeFile(file.originalUri, Buffer.from(content, 'utf8'));
+                        } else {
+                            // For modified/deleted files, restore content from ref
+                            const relativePath = path.relative(repository.rootUri.fsPath, file.resourceUri.fsPath);
+                            const content = await repository.show(ref, relativePath);
+                            await vscode.workspace.fs.writeFile(file.resourceUri, Buffer.from(content, 'utf8'));
+                        }
+
+                        successCount++;
+                    } catch (error) {
+                        console.error(`Failed to restore ${file.resourceUri.fsPath}:`, error);
+                        failCount++;
+                    }
+                }
+
+                // Refresh the tree view
+                const treeDataProvider = currentTreeDataProviders.get(repository);
+                if (treeDataProvider) {
+                    treeDataProvider.refresh();
+                }
+
+                if (failCount === 0) {
+                    const message = successCount === 1
+                        ? `Restored 1 file to ${ref} state`
+                        : `Restored ${successCount} files to ${ref} state`;
+                    vscode.window.showInformationMessage(message);
+                } else {
+                    vscode.window.showWarningMessage(
+                        `Restored ${successCount} file(s), failed to restore ${failCount} file(s)`
+                    );
+                }
+            }
+            return;
         }
     }
 }
