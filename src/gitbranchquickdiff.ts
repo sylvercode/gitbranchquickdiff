@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as vscodeVariables from './vscode-variables';
 import { getGitAPI } from './gitApi';
 import * as git from './git';
-import { ChangesTreeDataProvider, openChange } from './changesTreeView';
+import { ChangedFile, ChangesTreeDataProvider, openChange } from './changesTreeView';
 
 export const EXTENTION_NAME = 'gitbranchquickdiff';
 
@@ -22,8 +22,11 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.defaultref`, resetRefToDefault);
     registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, refreshChanges);
     registerCommand(context, `${EXTENTION_NAME}.openChange`, openChangeCommand);
+    registerCommand(context, `${EXTENTION_NAME}.openFile`, openFileCommand);
     registerCommand(context, `${EXTENTION_NAME}.viewAsList`, setListMode);
     registerCommand(context, `${EXTENTION_NAME}.viewAsTree`, setTreeMode);
+    registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenFile`, setDefaultActionOpenFile);
+    registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenChanges`, setDefaultActionOpenChanges);
 }
 
 async function registerToGitExtention(context: vscode.ExtensionContext) {
@@ -260,7 +263,7 @@ function refreshChanges() {
     }
 }
 
-async function openChangeCommand(uri: vscode.Uri, status: git.Status) {
+async function openChangeCommand(fileItem: ChangedFile) {
     // Get the Git API
     const gitApi = await getGitAPI();
     if (!gitApi) {
@@ -270,11 +273,15 @@ async function openChangeCommand(uri: vscode.Uri, status: git.Status) {
 
     // Find the repository for this URI
     for (const [repository, provider] of currentProviders.entries()) {
-        if (uri.fsPath.startsWith(repository.rootUri.fsPath)) {
-            await openChange(gitApi, repository, () => provider.getCurrentRef(), uri, status);
+        if (fileItem.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
+            await openChange(gitApi, repository, () => provider.getCurrentRef(), fileItem.resourceUri, fileItem.status);
             return;
         }
     }
+}
+
+async function openFileCommand(fileItem: ChangedFile) {
+    await vscode.commands.executeCommand('vscode.open', fileItem.resourceUri);
 }
 
 function setListMode() {
@@ -291,4 +298,12 @@ function setTreeMode() {
     }
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', 'tree');
     vscode.workspace.getConfiguration(EXTENTION_NAME).update('displayMode', 'tree', false);
+}
+
+function setDefaultActionOpenFile() {
+    vscode.workspace.getConfiguration(EXTENTION_NAME).update('defaultAction', 'openFile', false);
+}
+
+function setDefaultActionOpenChanges() {
+    vscode.workspace.getConfiguration(EXTENTION_NAME).update('defaultAction', 'openChanges', false);
 }

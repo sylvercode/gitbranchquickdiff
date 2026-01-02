@@ -41,15 +41,23 @@ VS Code extension that replaces the default diff gutter with comparisons against
     - Only decorates files with diff changes (ref vs HEAD) with `⁺` superscript badge
     - Does not decorate worktree-only changes (avoids conflicts with built-in Git extension)
     - Updates decorations via `setChanges()` when tree refreshes
-  - `ChangedFile`: Tree item with smart status display:
+  - `ChangedFile`: Tree item with smart status display and configurable click behavior:
     - Diff changes: `M⁺` (with superscript plus)
     - Diff + worktree: `M⁺, M` (comma-separated)
     - Worktree only: `M` (no superscript)
     - **Display Context**: Directory shown only in list mode, hidden in tree mode
     - Accepts `displayMode` parameter to conditionally format description
+    - **Click Behavior**: Reads `gitbranchquickdiff.defaultAction` setting in constructor to set command
+      - `openChanges` (default): Clicking opens diff view
+      - `openFile`: Clicking opens file directly
+      - Setting is read on-demand, no refresh needed when changed
+    - **Inline Actions**: Two icon commands conditionally shown based on default action:
+      - `openChange` with `compare-changes` icon: Opens diff (hidden if default action)
+      - `openFile` with `go-to-file` icon: Opens file directly (hidden if default action)
   - Shared utility functions: `getStatusText()`, `getStatusColor()`, `getStatusTooltip()`
   - Status indicators: M (Modified), A (Added), D (Deleted), R (Renamed), U (Untracked), I (Ignored)
   - Git-style colored icons using theme colors
+  - `openChange()`: Helper function to open diff view or historical file content for deleted files
 - **[gitApi.ts](../src/gitApi.ts)**: Wrapper for VS Code's built-in Git extension API
   - `getGitAPI()`: Gets Git extension API, waits for activation if needed
   - `getGitRepository()`: Gets repository for a workspace URI
@@ -130,8 +138,10 @@ Press **F5** to launch Extension Development Host with:
 - `Set quick diff ref`: Change comparison reference (shows input box with current value)
 - `Revert quick diff ref to user setting`: Reset workspace override to `undefined`
 - `Refresh`: Manually refresh the changes tree view
-- `Open Changes`: Open diff view for a changed file (registered via tree item command)
+- `Open Changes`: Open diff view for a changed file (inline icon: compare-changes)
+- `Open File`: Open file directly without diff (inline icon: go-to-file)
 - `View as List` / `View as Tree`: Toggle between list and tree display modes (shown in view menu with checkmarks)
+- `Open File by Default` / `Open Changes by Default`: Set default click action (in view title ... menu, conditionally shown)
 
 ### Testing Variable Substitution
 Set `gitbranchquickdiff.ref` to test variable patterns:
@@ -169,10 +179,12 @@ Set `gitbranchquickdiff.ref` to test variable patterns:
 gitbranchquickdiff.enabled: boolean (default: true)
 gitbranchquickdiff.ref: string (default: "main")
 gitbranchquickdiff.displayMode: "list" | "tree" (default: "list")
+gitbranchquickdiff.defaultAction: "openChanges" | "openFile" (default: "openChanges")
 ```
 
 The `ref` value undergoes variable substitution before use, enabling dynamic references based on workspace state.
 The `displayMode` value is persisted across sessions to remember user's preferred view mode.
+The `defaultAction` value controls what happens when clicking a file in the tree view and which inline icon is hidden.
 
 ## Common Development Patterns
 

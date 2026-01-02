@@ -42,6 +42,15 @@
           ],
           "default": "list",
           "description": "Display mode for the changes view: list or tree."
+        },
+        "gitbranchquickdiff.defaultAction": {
+          "type": "string",
+          "enum": [
+            "openChanges",
+            "openFile"
+          ],
+          "default": "openChanges",
+          "description": "Default action when clicking on a changed file: open diff (openChanges) or open file directly (openFile)."
         }
       }
     },
@@ -81,7 +90,13 @@
       },
       {
         "command": "gitbranchquickdiff.openChange",
-        "title": "Open Changes"
+        "title": "Open Changes",
+        "icon": "$(compare-changes)"
+      },
+      {
+        "command": "gitbranchquickdiff.openFile",
+        "title": "Open File",
+        "icon": "$(go-to-file)"
       },
       {
         "command": "gitbranchquickdiff.viewAsList",
@@ -92,6 +107,14 @@
         "command": "gitbranchquickdiff.viewAsTree",
         "title": "View as Tree",
         "icon": "$(check)"
+      },
+      {
+        "command": "gitbranchquickdiff.setDefaultActionOpenFile",
+        "title": "Open File by Default"
+      },
+      {
+        "command": "gitbranchquickdiff.setDefaultActionOpenChanges",
+        "title": "Open Changes by Default"
       }
     ],
     "menus": {
@@ -115,6 +138,28 @@
           "command": "gitbranchquickdiff.changeref",
           "when": "view == gitbranchquickdiff.changes",
           "group": "2_commands"
+        },
+        {
+          "command": "gitbranchquickdiff.setDefaultActionOpenFile",
+          "when": "view == gitbranchquickdiff.changes && config.gitbranchquickdiff.defaultAction != openFile",
+          "group": "3_defaultaction@1"
+        },
+        {
+          "command": "gitbranchquickdiff.setDefaultActionOpenChanges",
+          "when": "view == gitbranchquickdiff.changes && config.gitbranchquickdiff.defaultAction != openChanges",
+          "group": "3_defaultaction@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "gitbranchquickdiff.openChange",
+          "when": "view == gitbranchquickdiff.changes && viewItem =~ /^changedFile:/ && config.gitbranchquickdiff.defaultAction != openChanges",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitbranchquickdiff.openFile",
+          "when": "view == gitbranchquickdiff.changes && viewItem =~ /^changedFile:/ && config.gitbranchquickdiff.defaultAction != openFile",
+          "group": "inline@2"
         }
       ],
       "editor/title": [

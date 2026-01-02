@@ -515,12 +515,21 @@ export class ChangedFile extends vscode.TreeItem {
             color
         );
 
-        // Command to open the file diff
-        this.command = {
-            command: 'gitbranchquickdiff.openChange',
-            title: 'Open Changes',
-            arguments: [resourceUri, status]
-        };
+        // Set default click command based on current setting
+        const defaultAction = vscode.workspace.getConfiguration('gitbranchquickdiff').get<string>('defaultAction', 'openChanges');
+        if (defaultAction === 'openFile') {
+            this.command = {
+                command: 'gitbranchquickdiff.openFile',
+                title: 'Open File',
+                arguments: [this]
+            };
+        } else {
+            this.command = {
+                command: 'gitbranchquickdiff.openChange',
+                title: 'Open Changes',
+                arguments: [this]
+            };
+        }
 
         // Add context value for menu customization
         this.contextValue = `changedFile:${status}`;
