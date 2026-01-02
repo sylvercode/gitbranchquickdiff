@@ -45,6 +45,7 @@ VS Code extension that replaces the default diff gutter with comparisons against
     - Shows file count in description
     - Has `resourceUri` set to directory path
     - Collapsible state with folder icon
+    - **Inline Action**: `Open Changes` command with `request-changes` icon opens all files in directory in multi-file diff view
   - `ChangesDecorationProvider`: File decoration provider for explorer and tab headers
     - **Registered once per repository** (never re-registered, unlike QuickDiffProvider)
     - Only decorates files with diff changes (ref vs HEAD) with `⁺` superscript badge
@@ -119,6 +120,12 @@ VS Code extension that replaces the default diff gutter with comparisons against
 
 7. **Git URI Generation**: Use `git.toGitUri(uri, ref)` to create virtual URIs for historical file versions in diffs.
 
+8. **Multi-File Diff Views**: Use `vscode.changes` command to open multiple files in a unified diff view:
+   - Format: `vscode.commands.executeCommand('vscode.changes', title, changes)`
+   - Changes array: `[URI, URI, URI][]` where each tuple is `[label, left (old), right (new)]`
+   - Used by "Open All Changes" command (all files) and "Open Changes" on directories (directory files)
+   - Skip deleted files to avoid errors in multi-file view
+
 ## Development Workflow
 
 ### Build & Watch
@@ -156,7 +163,19 @@ Press **F5** to launch Extension Development Host with:
   - Icon: `$(refresh)` (refresh icon)
   - Located in view title navigation bar (header)
   - Hidden when extension is deactivated
-- `Open Changes`: Open diff view for a changed file (inline icon: compare-changes)
+- `Open All Changes`: Open all changed files in multi-file diff view
+  - Icon: `$(files)` (files icon)
+  - Located in view title navigation bar (header)
+  - Uses `vscode.changes` command to show all changes in a single multi-file diff view
+  - Skips deleted files to avoid errors
+  - Hidden when extension is deactivated
+- `Open Changes` (on files): Open diff view for a changed file (inline icon: compare-changes)
+  - Hidden when extension is deactivated
+- `Open Changes` (on directories): Open all files in directory in multi-file diff view (inline icon: request-changes)
+  - Only shown in tree mode on directory items
+  - Recursively collects all files in the directory and subdirectories
+  - Uses `vscode.changes` command with format `[URI, URI, URI][]` as `[label, left, right][]`
+  - Skips deleted files in multi-file view
   - Hidden when extension is deactivated
 - `Open File`: Open file directly without diff (inline icon: go-to-file)
   - Hidden when extension is deactivated

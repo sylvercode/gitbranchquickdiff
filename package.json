@@ -100,6 +100,16 @@
         "icon": "$(go-to-file)"
       },
       {
+        "command": "gitbranchquickdiff.openDirectoryChanges",
+        "title": "Open Changes",
+        "icon": "$(multi-diff-editor-label-icon)"
+      },
+      {
+        "command": "gitbranchquickdiff.openAllChanges",
+        "title": "Open All Changes",
+        "icon": "$(multi-diff-editor-label-icon)"
+      },
+      {
         "command": "gitbranchquickdiff.viewAsList",
         "title": "View as List",
         "icon": "$(check)"
@@ -120,6 +130,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "gitbranchquickdiff.openAllChanges",
+          "when": "view == gitbranchquickdiff.changes && config.gitbranchquickdiff.enabled",
+          "group": "navigation"
+        },
         {
           "command": "gitbranchquickdiff.changeref",
           "when": "view == gitbranchquickdiff.changes && config.gitbranchquickdiff.enabled",
@@ -171,6 +186,11 @@
           "command": "gitbranchquickdiff.openFile",
           "when": "view == gitbranchquickdiff.changes && viewItem =~ /^changedFile:/ && config.gitbranchquickdiff.defaultAction != openFile && config.gitbranchquickdiff.enabled",
           "group": "inline@2"
+        },
+        {
+          "command": "gitbranchquickdiff.openDirectoryChanges",
+          "when": "view == gitbranchquickdiff.changes && viewItem == directory && config.gitbranchquickdiff.enabled",
+          "group": "inline@1"
         }
       ]
     }

@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import * as vscodeVariables from './vscode-variables';
 import { getGitAPI } from './gitApi';
 import * as git from './git';
-import { ChangedFile, ChangesTreeDataProvider, openChange } from './changesTreeView';
+import { Status } from './git';
+import { ChangedFile, ChangesTreeDataProvider, DirectoryNode, openChange } from './changesTreeView';
 
 export const EXTENTION_NAME = 'gitbranchquickdiff';
 
@@ -23,6 +25,8 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, refreshChanges);
     registerCommand(context, `${EXTENTION_NAME}.openChange`, openChangeCommand);
     registerCommand(context, `${EXTENTION_NAME}.openFile`, openFileCommand);
+    registerCommand(context, `${EXTENTION_NAME}.openDirectoryChanges`, openDirectoryChangesCommand);
+    registerCommand(context, `${EXTENTION_NAME}.openAllChanges`, openAllChangesCommand);
     registerCommand(context, `${EXTENTION_NAME}.viewAsList`, setListMode);
     registerCommand(context, `${EXTENTION_NAME}.viewAsTree`, setTreeMode);
     registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenFile`, setDefaultActionOpenFile);
@@ -298,6 +302,137 @@ async function openChangeCommand(fileItem: ChangedFile) {
 
 async function openFileCommand(fileItem: ChangedFile) {
     await vscode.commands.executeCommand('vscode.open', fileItem.resourceUri);
+}
+
+async function openDirectoryChangesCommand(directoryNode: any) {
+    // Get the Git API
+    const gitApi = await getGitAPI();
+    if (!gitApi) {
+        vscode.window.showErrorMessage('Git extension not found');
+        return;
+    }
+
+    // Check if it's a DirectoryNode
+    if (!(directoryNode instanceof DirectoryNode)) {
+        return;
+    }
+
+    // Check if resourceUri exists
+    if (!directoryNode.resourceUri) {
+        return;
+    }
+
+    // Find the repository for this directory
+    for (const [repository, provider] of currentProviders.entries()) {
+        if (directoryNode.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
+            // Get all files in this directory from the tree data provider
+            const treeDataProvider = currentTreeDataProviders.get(repository);
+            if (!treeDataProvider) {
+                return;
+            }
+
+            // Get children of this directory (recursive to get all files)
+            const getFilesRecursive = async (node: any): Promise<ChangedFile[]> => {
+                const children = await treeDataProvider.getChildren(node);
+                const files: ChangedFile[] = [];
+                for (const child of children) {
+                    if (child instanceof DirectoryNode) {
+                        // Recursively get files from subdirectories
+                        files.push(...await getFilesRecursive(child));
+                    } else if (child instanceof ChangedFile) {
+                        // It's a ChangedFile
+                        files.push(child);
+                    }
+                }
+                return files;
+            };
+
+            const files = await getFilesRecursive(directoryNode);
+
+            // Build changes array for vscode.changes command
+            const ref = await provider.getCurrentRef();
+            const changes: [vscode.Uri, vscode.Uri, vscode.Uri][] = [];
+            for (const file of files) {
+                // Skip deleted files in multi-file view
+                if (file.status === Status.DELETED ||
+                    file.status === Status.DELETED_BY_THEM ||
+                    file.status === Status.DELETED_BY_US) {
+                    continue;
+                }
+
+                const gitUri = gitApi.toGitUri(file.resourceUri, ref);
+                // Format: [label, left (old), right (new)]
+                changes.push([file.resourceUri, gitUri, file.resourceUri]);
+            }
+
+            // Open all changes in multi-file diff view
+            if (changes.length > 0) {
+                await vscode.commands.executeCommand('vscode.changes', `${ref} ↔ Working Tree`, changes);
+            }
+            return;
+        }
+    }
+}
+
+async function openAllChangesCommand() {
+    // Get the Git API
+    const gitApi = await getGitAPI();
+    if (!gitApi) {
+        vscode.window.showErrorMessage('Git extension not found');
+        return;
+    }
+
+    // Process all repositories
+    for (const [repository, provider] of currentProviders.entries()) {
+        const treeDataProvider = currentTreeDataProviders.get(repository);
+        if (!treeDataProvider) {
+            continue;
+        }
+
+        // Get all root-level items (files and directories)
+        const rootItems = await treeDataProvider.getChildren();
+
+        // Collect all changed files
+        const getFilesRecursive = async (node: any): Promise<ChangedFile[]> => {
+            if (node instanceof ChangedFile) {
+                return [node];
+            } else if (node instanceof DirectoryNode) {
+                const children = await treeDataProvider.getChildren(node);
+                const files: ChangedFile[] = [];
+                for (const child of children) {
+                    files.push(...await getFilesRecursive(child));
+                }
+                return files;
+            }
+            return [];
+        };
+
+        const allFiles: ChangedFile[] = [];
+        for (const item of rootItems) {
+            allFiles.push(...await getFilesRecursive(item));
+        }
+
+        // Build changes array for vscode.changes command
+        const ref = await provider.getCurrentRef();
+        const changes: [vscode.Uri, vscode.Uri, vscode.Uri][] = [];
+        for (const file of allFiles) {
+            // Skip deleted files in multi-file view
+            if (file.status === Status.DELETED ||
+                file.status === Status.DELETED_BY_THEM ||
+                file.status === Status.DELETED_BY_US) {
+                continue;
+            }
+
+            const gitUri = gitApi.toGitUri(file.resourceUri, ref);
+            // Format: [label, left (old), right (new)]
+            changes.push([file.resourceUri, gitUri, file.resourceUri]);
+        }
+
+        // Open all changes in multi-file diff view
+        if (changes.length > 0) {
+            await vscode.commands.executeCommand('vscode.changes', `${ref} ↔ Working Tree`, changes);
+        }
+    }
 }
 
 function setListMode() {
