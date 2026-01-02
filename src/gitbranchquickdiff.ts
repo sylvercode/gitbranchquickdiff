@@ -294,14 +294,72 @@ async function openChangeCommand(fileItem: ChangedFile) {
     // Find the repository for this URI
     for (const [repository, provider] of currentProviders.entries()) {
         if (fileItem.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
-            await openChange(gitApi, repository, () => provider.getCurrentRef(), fileItem.resourceUri, fileItem.status);
+            await openChange(gitApi, repository, () => provider.getCurrentRef(), fileItem.resourceUri, fileItem.originalUri, fileItem.status);
             return;
         }
     }
 }
 
 async function openFileCommand(fileItem: ChangedFile) {
-    await vscode.commands.executeCommand('vscode.open', fileItem.resourceUri);
+    // For deleted files, use openChange to show the file from the ref
+    if (fileItem.status === Status.INDEX_DELETED ||
+        fileItem.status === Status.DELETED ||
+        fileItem.status === Status.DELETED_BY_THEM ||
+        fileItem.status === Status.DELETED_BY_US) {
+        // Get the Git API
+        const gitApi = await getGitAPI();
+        if (!gitApi) {
+            vscode.window.showErrorMessage('Git extension not found');
+            return;
+        }
+
+        // Find the repository for this URI
+        for (const [repository, provider] of currentProviders.entries()) {
+            if (fileItem.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
+                await openChange(gitApi, repository, () => provider.getCurrentRef(), fileItem.resourceUri, fileItem.originalUri, fileItem.status);
+                return;
+            }
+        }
+    } else {
+        await vscode.commands.executeCommand('vscode.open', fileItem.resourceUri);
+    }
+}
+
+// Helper function to build changes array for multi-file diff view
+function buildChangesArray(
+    files: ChangedFile[],
+    gitApi: git.API,
+    ref: string
+): [vscode.Uri, vscode.Uri | undefined, vscode.Uri | undefined][] {
+    const changes: [vscode.Uri, vscode.Uri | undefined, vscode.Uri | undefined][] = [];
+    for (const file of files) {
+        const gitUri = gitApi.toGitUri(file.resourceUri, ref);
+
+        // For deleted files: [label, left (old from ref), right (null - doesn't exist)]
+        if (file.status === Status.INDEX_DELETED ||
+            file.status === Status.DELETED ||
+            file.status === Status.DELETED_BY_THEM ||
+            file.status === Status.DELETED_BY_US) {
+            changes.push([file.resourceUri, gitUri, undefined]);
+        }
+        // For added/untracked files: [label, left (null - didn't exist), right (current)]
+        else if (file.status === Status.UNTRACKED ||
+            file.status === Status.INDEX_ADDED ||
+            file.status === Status.INTENT_TO_ADD) {
+            changes.push([file.resourceUri, undefined, file.resourceUri]);
+        }
+        // For renamed files: [label, left (old from ref with original path), right (current with new path)]
+        else if (file.status === Status.INDEX_RENAMED) {
+            // For renamed files, originalUri has the old path and resourceUri has the new path
+            const originalGitUri = gitApi.toGitUri(file.originalUri, ref);
+            changes.push([file.resourceUri, originalGitUri, file.resourceUri]);
+        }
+        // For modified files: [label, left (old from ref), right (current)]
+        else {
+            changes.push([file.resourceUri, gitUri, file.resourceUri]);
+        }
+    }
+    return changes;
 }
 
 async function openDirectoryChangesCommand(directoryNode: any) {
@@ -351,19 +409,7 @@ async function openDirectoryChangesCommand(directoryNode: any) {
 
             // Build changes array for vscode.changes command
             const ref = await provider.getCurrentRef();
-            const changes: [vscode.Uri, vscode.Uri, vscode.Uri][] = [];
-            for (const file of files) {
-                // Skip deleted files in multi-file view
-                if (file.status === Status.DELETED ||
-                    file.status === Status.DELETED_BY_THEM ||
-                    file.status === Status.DELETED_BY_US) {
-                    continue;
-                }
-
-                const gitUri = gitApi.toGitUri(file.resourceUri, ref);
-                // Format: [label, left (old), right (new)]
-                changes.push([file.resourceUri, gitUri, file.resourceUri]);
-            }
+            const changes = buildChangesArray(files, gitApi, ref);
 
             // Open all changes in multi-file diff view
             if (changes.length > 0) {
@@ -414,19 +460,7 @@ async function openAllChangesCommand() {
 
         // Build changes array for vscode.changes command
         const ref = await provider.getCurrentRef();
-        const changes: [vscode.Uri, vscode.Uri, vscode.Uri][] = [];
-        for (const file of allFiles) {
-            // Skip deleted files in multi-file view
-            if (file.status === Status.DELETED ||
-                file.status === Status.DELETED_BY_THEM ||
-                file.status === Status.DELETED_BY_US) {
-                continue;
-            }
-
-            const gitUri = gitApi.toGitUri(file.resourceUri, ref);
-            // Format: [label, left (old), right (new)]
-            changes.push([file.resourceUri, gitUri, file.resourceUri]);
-        }
+        const changes = buildChangesArray(allFiles, gitApi, ref);
 
         // Open all changes in multi-file diff view
         if (changes.length > 0) {

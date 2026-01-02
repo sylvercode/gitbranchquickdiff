@@ -17,6 +17,7 @@ function getStatusText(status: Status): string {
         case Status.INDEX_ADDED:
         case Status.INTENT_TO_ADD:
             return 'A';
+        case Status.INDEX_DELETED:
         case Status.DELETED:
         case Status.DELETED_BY_THEM:
         case Status.DELETED_BY_US:
@@ -39,6 +40,7 @@ function getStatusColor(status: Status): vscode.ThemeColor {
         case Status.INDEX_ADDED:
         case Status.INTENT_TO_ADD:
             return new vscode.ThemeColor('gitDecoration.addedResourceForeground');
+        case Status.INDEX_DELETED:
         case Status.DELETED:
         case Status.DELETED_BY_THEM:
         case Status.DELETED_BY_US:
@@ -57,22 +59,23 @@ function getStatusColor(status: Status): vscode.ThemeColor {
 function getStatusTooltip(status: Status): string {
     switch (status) {
         case Status.MODIFIED:
-            return 'Modified';
+            return 'Modified⁺';
         case Status.INDEX_ADDED:
         case Status.INTENT_TO_ADD:
-            return 'Added';
+            return 'Added⁺';
+        case Status.INDEX_DELETED:
         case Status.DELETED:
         case Status.DELETED_BY_THEM:
         case Status.DELETED_BY_US:
-            return 'Deleted';
+            return 'Deleted⁺';
         case Status.INDEX_RENAMED:
-            return 'Renamed';
+            return 'Renamed⁺';
         case Status.UNTRACKED:
-            return 'Untracked';
+            return 'Untracked⁺';
         case Status.IGNORED:
-            return 'Ignored';
+            return 'Ignored⁺';
         default:
-            return 'Unknown';
+            return 'Unknown⁺';
     }
 }
 
@@ -173,12 +176,13 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
             }
 
             // Combine all changes and deduplicate by URI
-            const allChangesMap = new Map<string, { uri: vscode.Uri; status: Status; worktreeStatus?: Status }>();
+            const allChangesMap = new Map<string, { uri: vscode.Uri; originalUri: vscode.Uri; status: Status; worktreeStatus?: Status }>();
 
             // Add diff changes (between ref and HEAD)
             for (const change of diffChanges) {
                 allChangesMap.set(change.uri.toString(), {
                     uri: change.uri,
+                    originalUri: change.originalUri,
                     status: change.status,
                     worktreeStatus: worktreeStatusMap.get(change.uri.toString())
                 });
@@ -189,6 +193,7 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                 if (!allChangesMap.has(change.uri.toString())) {
                     allChangesMap.set(change.uri.toString(), {
                         uri: change.uri,
+                        originalUri: change.originalUri,
                         status: change.status,
                         worktreeStatus: change.status
                     });
@@ -200,6 +205,7 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                 if (!allChangesMap.has(change.uri.toString())) {
                     allChangesMap.set(change.uri.toString(), {
                         uri: change.uri,
+                        originalUri: change.originalUri,
                         status: change.status,
                         worktreeStatus: change.status
                     });
@@ -211,6 +217,7 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                 if (!allChangesMap.has(change.uri.toString())) {
                     allChangesMap.set(change.uri.toString(), {
                         uri: change.uri,
+                        originalUri: change.originalUri,
                         status: change.status,
                         worktreeStatus: change.status
                     });
@@ -247,6 +254,7 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                     fileName,
                     dirName !== '.' ? dirName : '',
                     uri,
+                    change.originalUri,
                     statusText,
                     worktreeStatusText,
                     '',
@@ -493,6 +501,7 @@ export class ChangedFile extends vscode.TreeItem {
         public readonly fileName: string,
         public readonly directory: string,
         public readonly resourceUri: vscode.Uri,
+        public readonly originalUri: vscode.Uri,
         public readonly statusText: string,
         public readonly worktreeStatusText: string | undefined,
         public readonly statusIcon: string,
@@ -554,13 +563,31 @@ export class ChangedFile extends vscode.TreeItem {
     }
 }
 
-export async function openChange(git: API, repository: Repository, getRef: () => Promise<string>, uri: vscode.Uri, status: Status) {
+export async function openChange(git: API, repository: Repository, getRef: () => Promise<string>, uri: vscode.Uri, originalUri: vscode.Uri, status: Status) {
     const ref = await getRef();
 
-    if (status === Status.DELETED || status === Status.DELETED_BY_THEM || status === Status.DELETED_BY_US) {
+    if (status === Status.INDEX_DELETED || status === Status.DELETED || status === Status.DELETED_BY_THEM || status === Status.DELETED_BY_US) {
         // For deleted files, show the file from the ref
         const gitUri = git.toGitUri(uri, ref);
         await vscode.commands.executeCommand('vscode.open', gitUri);
+    } else if (status === Status.UNTRACKED || status === Status.INDEX_ADDED || status === Status.INTENT_TO_ADD) {
+        // For untracked or newly added files, just open the file
+        await vscode.commands.executeCommand('vscode.open', uri);
+    } else if (status === Status.INDEX_RENAMED) {
+        // For renamed files, use originalUri for the left side (old file from ref)
+        try {
+            const originalGitUri = git.toGitUri(originalUri, ref);
+            const fileName = path.basename(uri.fsPath);
+            await vscode.commands.executeCommand(
+                'vscode.diff',
+                originalGitUri,
+                uri,
+                `${fileName} (${ref} ↔ Working Tree)`
+            );
+        } catch (error) {
+            // If file doesn't exist in ref, just open it
+            await vscode.commands.executeCommand('vscode.open', uri);
+        }
     } else {
         // Show diff between ref version and current version
         try {
