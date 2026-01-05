@@ -2,7 +2,7 @@
 
 Change the VSCode diff gutter to use another git ref as original file.
 
-:warning: **Since VSCode 1.97.0, this extention does not work any more (see [#2](../../issues/2))**
+:warning: **Since VSCode 1.97.0, this extention does not work any more (see [#2](../../issues/2))**. Check [tree-view](https://github.com/sylvercode/gitbranchquickdiff/tree/tree-view) branch for upcomig solution preview.
 
 ## Features
 
@@ -25,14 +25,3 @@ Set the ref to use with `gitbranchquickdiff.ref`.
 ## Known Issues
 
 Sometime, when toggling back to VSCode default behavior, the windows need to be reloaded.
-
-## Release Notes
-
-### 0.1.0
-
-Initial release of GitBranchQuickDiff
-
-### 0.1.1
-
-BUG Correction
-Enabled setting default is now `on`.
