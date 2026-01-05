@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as vscodeVariables from './vscode-variables';
 import { Repository, Status, API } from './git';
+import { l10n } from './l10n';
 
 // Extended Status enum with RESTORED status
 export enum ExtendedStatus {
@@ -40,6 +41,9 @@ export enum DisplayMode {
     List = 'list',
     Tree = 'tree'
 }
+
+// Superscript plus badge suffix for diff changes
+const DIFF_BADGE_SUFFIX = '⁺';
 
 // Shared utility functions for status handling
 function getStatusText(status: ExtendedStatus): string {
@@ -118,44 +122,61 @@ function getStatusColor(status: ExtendedStatus): vscode.ThemeColor {
 }
 
 function getStatusTooltip(status: ExtendedStatus): string {
+    let tooltip: string;
     switch (status) {
         case ExtendedStatus.INDEX_MODIFIED:
         case ExtendedStatus.MODIFIED:
-            return 'Modified⁺';
+            tooltip = l10n('status.modified');
+            break;
         case ExtendedStatus.INDEX_ADDED:
         case ExtendedStatus.INTENT_TO_ADD:
-            return 'Added⁺';
+            tooltip = l10n('status.added');
+            break;
         case ExtendedStatus.INDEX_DELETED:
         case ExtendedStatus.DELETED:
         case ExtendedStatus.DELETED_BY_THEM:
         case ExtendedStatus.DELETED_BY_US:
-            return 'Deleted⁺';
+            tooltip = l10n('status.deleted');
+            break;
         case ExtendedStatus.INDEX_RENAMED:
         case ExtendedStatus.INTENT_TO_RENAME:
-            return 'Renamed⁺';
+            tooltip = l10n('status.renamed');
+            break;
         case ExtendedStatus.INDEX_COPIED:
-            return 'Copied⁺';
+            tooltip = l10n('status.copied');
+            break;
         case ExtendedStatus.TYPE_CHANGED:
-            return 'Type Changed⁺';
+            tooltip = l10n('status.typeChanged');
+            break;
         case ExtendedStatus.UNTRACKED:
-            return 'Untracked⁺';
+            tooltip = l10n('status.untracked');
+            break;
         case ExtendedStatus.IGNORED:
-            return 'Ignored⁺';
+            tooltip = l10n('status.ignored');
+            break;
         case ExtendedStatus.ADDED_BY_US:
-            return 'Added By Us⁺';
+            tooltip = l10n('status.addedByUs');
+            break;
         case ExtendedStatus.ADDED_BY_THEM:
-            return 'Added By Them⁺';
+            tooltip = l10n('status.addedByThem');
+            break;
         case ExtendedStatus.BOTH_ADDED:
-            return 'Both Added⁺';
+            tooltip = l10n('status.bothAdded');
+            break;
         case ExtendedStatus.BOTH_DELETED:
-            return 'Both Deleted⁺';
+            tooltip = l10n('status.bothDeleted');
+            break;
         case ExtendedStatus.BOTH_MODIFIED:
-            return 'Both Modified⁺';
+            tooltip = l10n('status.bothModified');
+            break;
         case ExtendedStatus.RESTORED:
-            return 'Restored⁺';
+            tooltip = l10n('status.restored');
+            break;
         default:
-            return 'Unknown⁺';
+            tooltip = l10n('status.unknown');
+            break;
     }
+    return `${tooltip}${DIFF_BADGE_SUFFIX}`;
 }
 
 // Message item for displaying info in the tree view
@@ -216,9 +237,9 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
         // Check if the extension is enabled
         const isEnabled = vscode.workspace.getConfiguration('gitbranchquickdiff').get<boolean>('enabled', true);
         if (!isEnabled) {
-            return [new MessageItem('Quick Diff is deactivated. Use the activate command to enable it.', {
+            return [new MessageItem(l10n('message.quickDiffDeactivated'), {
                 command: 'gitbranchquickdiff.activate',
-                title: 'Activate'
+                title: l10n('command.activate')
             })];
         }
 
@@ -666,7 +687,7 @@ export class ChangesDecorationProvider implements vscode.FileDecorationProvider 
 
         // Return a new decoration object each time
         return {
-            badge: `${change.statusText}⁺`,
+            badge: `${change.statusText}${DIFF_BADGE_SUFFIX}`,
             color: change.color,
             tooltip: getStatusTooltip(change.status)
         };
@@ -696,7 +717,7 @@ export class ChangedFile extends vscode.TreeItem {
         let statusDisplay: string;
         if (isInDiff) {
             // File has changes in diff (ref vs HEAD)
-            statusDisplay = `${statusText}⁺`;
+            statusDisplay = `${statusText}${DIFF_BADGE_SUFFIX}`;
             if (gitStatusText) {
                 statusDisplay += `, ${gitStatusText}`;
             }

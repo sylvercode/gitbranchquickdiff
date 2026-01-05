@@ -1,7 +1,7 @@
 {
   "name": "gitbranchquickdiff",
   "displayName": "GitBranchQuickDiff",
-  "description": "",
+  "description": "%description%",
   "publisher": "sylvercode",
   "repository": {
     "url": "https://github.com/sylvercode/gitbranchquickdiff"
@@ -22,17 +22,17 @@
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "Git Branch Quick Diff",
+      "title": "%configuration.title%",
       "properties": {
         "gitbranchquickdiff.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Use Git Branch Quick Diff as diff gutter instead of VSCode default. The file of the ref will be use as base for the comparison."
+          "description": "%configuration.enabled.description%"
         },
         "gitbranchquickdiff.ref": {
           "type": "string",
           "default": "main",
-          "description": "Name of the ref to use for comparison. Variables substitution can be use."
+          "description": "%configuration.ref.description%"
         },
         "gitbranchquickdiff.displayMode": {
           "type": "string",
@@ -41,7 +41,7 @@
             "tree"
           ],
           "default": "list",
-          "description": "Display mode for the changes view: list or tree."
+          "description": "%configuration.displayMode.description%"
         },
         "gitbranchquickdiff.defaultAction": {
           "type": "string",
@@ -50,7 +50,7 @@
             "openFile"
           ],
           "default": "openChanges",
-          "description": "Default action when clicking on a changed file: open diff (openChanges) or open file directly (openFile)."
+          "description": "%configuration.defaultAction.description%"
         }
       }
     },
@@ -58,79 +58,79 @@
       "scm": [
         {
           "id": "gitbranchquickdiff.changes",
-          "name": "Quick Diff",
+          "name": "%views.changes.name%",
           "icon": "$(git-branch)",
-          "contextualTitle": "Quick Diff Changes"
+          "contextualTitle": "%views.changes.contextualTitle%"
         }
       ]
     },
     "commands": [
       {
         "command": "gitbranchquickdiff.activate",
-        "title": "Activate GitBranchQuickDiff",
+        "title": "%command.activate.title%",
         "enablement": "!config.gitbranchquickdiff.enabled"
       },
       {
         "command": "gitbranchquickdiff.changeref",
-        "title": "Set quick diff ref",
+        "title": "%command.changeref.title%",
         "icon": "$(target)"
       },
       {
         "command": "gitbranchquickdiff.deactivate",
-        "title": "Deactivate GitBranchQuickDiff",
+        "title": "%command.deactivate.title%",
         "enablement": "config.gitbranchquickdiff.enabled"
       },
       {
         "command": "gitbranchquickdiff.refreshChanges",
-        "title": "Refresh",
+        "title": "%command.refreshChanges.title%",
         "icon": "$(refresh)"
       },
       {
         "command": "gitbranchquickdiff.openChange",
-        "title": "Open Changes",
+        "title": "%command.openChange.title%",
         "icon": "$(compare-changes)"
       },
       {
         "command": "gitbranchquickdiff.openFile",
-        "title": "Open File",
+        "title": "%command.openFile.title%",
         "icon": "$(go-to-file)"
       },
       {
         "command": "gitbranchquickdiff.openDirectoryChanges",
-        "title": "Open Changes",
+        "title": "%command.openDirectoryChanges.title%",
         "icon": "$(multi-diff-editor-label-icon)"
       },
       {
         "command": "gitbranchquickdiff.openAllChanges",
-        "title": "Open All Changes",
+        "title": "%command.openAllChanges.title%",
         "icon": "$(multi-diff-editor-label-icon)"
       },
       {
         "command": "gitbranchquickdiff.viewAsList",
-        "title": "View as List",
+        "title": "%command.viewAsList.title%",
         "icon": "$(check)"
       },
       {
         "command": "gitbranchquickdiff.viewAsTree",
-        "title": "View as Tree",
+        "title": "%command.viewAsTree.title%",
         "icon": "$(check)"
       },
       {
         "command": "gitbranchquickdiff.setDefaultActionOpenFile",
-        "title": "Open File by Default"
+        "title": "%command.setDefaultActionOpenFile.title%"
       },
       {
         "command": "gitbranchquickdiff.setDefaultActionOpenChanges",
-        "title": "Open Changes by Default"
+        "title": "%command.setDefaultActionOpenChanges.title%"
       },
       {
         "command": "gitbranchquickdiff.restoreFile",
-        "title": "Restore to Ref State",
+        "title": "%command.restoreFile.title%",
         "icon": "$(discard)"
       },
       {
         "command": "gitbranchquickdiff.restoreDirectory",
-        "title": "Restore to Ref State",
+        "title": "%command.restoreDirectory.title%",
         "icon": "$(discard)"
       }
     ],

@@ -5,6 +5,7 @@ import { getGitAPI } from './gitApi';
 import * as git from './git';
 import { Status } from './git';
 import { ChangedFile, ChangesTreeDataProvider, DirectoryNode, openChange, ExtendedStatus } from './changesTreeView';
+import { l10n } from './l10n';
 
 export const EXTENTION_NAME = 'gitbranchquickdiff';
 
@@ -38,7 +39,7 @@ async function registerToGitExtention(context: vscode.ExtensionContext) {
     // Get the Git extension API
     const git = await getGitAPI();
     if (!git) {
-        vscode.window.showErrorMessage('Git extension not found');
+        vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
     }
 
@@ -262,8 +263,8 @@ function resetRefToDefault() {
 
 async function changeRef() {
     const input = await vscode.window.showInputBox({
-        title: 'ref',
-        prompt: 'Enter the git reference to use for quick diff (branch, tag, commit hash, etc.)',
+        title: l10n('prompt.setRefTitle'),
+        prompt: l10n('prompt.setRefPlaceholder'),
         value: vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME),
     });
 
@@ -288,7 +289,7 @@ async function openChangeCommand(fileItem: ChangedFile) {
     // Get the Git API
     const gitApi = await getGitAPI();
     if (!gitApi) {
-        vscode.window.showErrorMessage('Git extension not found');
+        vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
     }
 
@@ -310,7 +311,7 @@ async function openFileCommand(fileItem: ChangedFile) {
         // Get the Git API
         const gitApi = await getGitAPI();
         if (!gitApi) {
-            vscode.window.showErrorMessage('Git extension not found');
+            vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
             return;
         }
 
@@ -367,7 +368,7 @@ async function openDirectoryChangesCommand(directoryNode: any) {
     // Get the Git API
     const gitApi = await getGitAPI();
     if (!gitApi) {
-        vscode.window.showErrorMessage('Git extension not found');
+        vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
     }
 
@@ -425,7 +426,7 @@ async function openAllChangesCommand() {
     // Get the Git API
     const gitApi = await getGitAPI();
     if (!gitApi) {
-        vscode.window.showErrorMessage('Git extension not found');
+        vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
     }
 
@@ -474,7 +475,7 @@ async function restoreFileCommand(fileItem: ChangedFile) {
     // Get the Git API
     const gitApi = await getGitAPI();
     if (!gitApi) {
-        vscode.window.showErrorMessage('Git extension not found');
+        vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
     }
 
@@ -485,12 +486,12 @@ async function restoreFileCommand(fileItem: ChangedFile) {
             const fileName = path.basename(fileItem.resourceUri.fsPath);
             const ref = await provider.getCurrentRef();
             const answer = await vscode.window.showWarningMessage(
-                `Restore "${fileName}" to the state of ${ref}?`,
+                l10n('confirm.restoreFile', fileName, ref),
                 { modal: true },
-                'Restore'
+                l10n('confirm.restore')
             );
 
-            if (answer === 'Restore') {
+            if (answer === l10n('confirm.restore')) {
                 try {
                     // Check if file is added (doesn't exist in ref) or renamed
                     const isAdded = fileItem.status === ExtendedStatus.INDEX_ADDED ||
@@ -525,9 +526,9 @@ async function restoreFileCommand(fileItem: ChangedFile) {
                         treeDataProvider.refresh();
                     }
 
-                    vscode.window.showInformationMessage(`Restored "${fileName}" to ${ref} state`);
+                    vscode.window.showInformationMessage(l10n('info.restoredFile', fileName, ref));
                 } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to restore file: ${error}`);
+                    vscode.window.showErrorMessage(l10n('error.restoreFailed', String(error)));
                 }
             }
             return;
@@ -539,7 +540,7 @@ async function restoreDirectoryCommand(directoryNode: any) {
     // Get the Git API
     const gitApi = await getGitAPI();
     if (!gitApi) {
-        vscode.window.showErrorMessage('Git extension not found');
+        vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
     }
 
@@ -587,16 +588,16 @@ async function restoreDirectoryCommand(directoryNode: any) {
             // Show confirmation dialog with file count
             const ref = await provider.getCurrentRef();
             const message = files.length === 1
-                ? `Restore 1 file to the state of ${ref}?`
-                : `Restore ${files.length} files to the state of ${ref}?`;
+                ? l10n('confirm.restoreDirectory.single', ref)
+                : l10n('confirm.restoreDirectory.multiple', files.length, ref);
 
             const answer = await vscode.window.showWarningMessage(
                 message,
                 { modal: true },
-                'Restore'
+                l10n('confirm.restore')
             );
 
-            if (answer === 'Restore') {
+            if (answer === l10n('confirm.restore')) {
                 let successCount = 0;
                 let failCount = 0;
 
@@ -644,12 +645,12 @@ async function restoreDirectoryCommand(directoryNode: any) {
 
                 if (failCount === 0) {
                     const message = successCount === 1
-                        ? `Restored 1 file to ${ref} state`
-                        : `Restored ${successCount} files to ${ref} state`;
+                        ? l10n('info.restoredFiles.single', ref)
+                        : l10n('info.restoredFiles.multiple', successCount, ref);
                     vscode.window.showInformationMessage(message);
                 } else {
                     vscode.window.showWarningMessage(
-                        `Restored ${successCount} file(s), failed to restore ${failCount} file(s)`
+                        l10n('warning.restorePartialFailure', successCount, failCount)
                     );
                 }
             }
