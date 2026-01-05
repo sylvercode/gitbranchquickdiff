@@ -90,8 +90,9 @@ function getStatusColor(status: ExtendedStatus): vscode.ThemeColor {
         case ExtendedStatus.TYPE_CHANGED:
         case ExtendedStatus.INTENT_TO_RENAME:
         case ExtendedStatus.BOTH_MODIFIED:
-        case ExtendedStatus.RESTORED:
             return new vscode.ThemeColor('gitDecoration.modifiedResourceForeground');
+        case ExtendedStatus.RESTORED:
+            return new vscode.ThemeColor('diffEditor.unchangedRegionForeground');
         case ExtendedStatus.INDEX_ADDED:
         case ExtendedStatus.INTENT_TO_ADD:
         case ExtendedStatus.ADDED_BY_US:
@@ -396,9 +397,11 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                 }
                 const gitStatusText = gitStatuses.length > 0 ? gitStatuses.join(', ') : undefined;
 
-                // Prioritize git status (index/workingTree/merge) for color, fallback to ref status
+                // For color, prioritize RESTORED status, after git status (index/workingTree/merge), fallback to ref status
                 let colorStatus: ExtendedStatus;
-                if (change.indexStatus !== undefined) {
+                if (change.status == ExtendedStatus.RESTORED) {
+                    colorStatus = ExtendedStatus.RESTORED;
+                } else if (change.indexStatus !== undefined) {
                     colorStatus = toExtendedStatus(change.indexStatus);
                 } else if (change.workingTreeStatus !== undefined) {
                     colorStatus = toExtendedStatus(change.workingTreeStatus);
