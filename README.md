@@ -6,7 +6,7 @@ Change the VSCode diff gutter to use another git ref as original file and add a 
 
 This extension uses the [quickDiffProvider](https://github.com/microsoft/vscode/issues/169012) VSCode [proposed API](https://code.visualstudio.com/api/advanced-topics/using-proposed-api).
 
-So it cannot be published to the Microsoft Marketplace and must be installed using the `Install from VSIX` command.
+So it cannot be published to the Microsoft Marketplace and must be installed using the `Install from VSIX` command with a [downloaded package](https://github.com/sylvercode/gitbranchquickdiff/releases).
 
 Also `code` must be launched using `--enable-proposed-api=sylvercode.gitbranchquickdiff`; or you can add these lines in your `argv.json` using the `Preferences: Configure Runtime Arguments` command.
 
