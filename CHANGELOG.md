@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Pre-released]
+
+- New Quick Diff view in SCM panel.
+- File coloration in Explorer View, SCM changes view and Editor Tabs.
+- Gutter diff inline editor view source selector
+- Badges in Explorer View, SCM changes view and Editor Tabs.
 - Internationalization
 
 ## [0.1.1] - 2023-04-17
