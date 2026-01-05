@@ -21,7 +21,6 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.activate`, enableExtention);
     registerCommand(context, `${EXTENTION_NAME}.deactivate`, disableExtention);
     registerCommand(context, `${EXTENTION_NAME}.changeref`, changeRef);
-    registerCommand(context, `${EXTENTION_NAME}.defaultref`, resetRefToDefault);
     registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, refreshChanges);
     registerCommand(context, `${EXTENTION_NAME}.openChange`, openChangeCommand);
     registerCommand(context, `${EXTENTION_NAME}.openFile`, openFileCommand);

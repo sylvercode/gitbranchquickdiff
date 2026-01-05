@@ -76,10 +76,6 @@
         "icon": "$(target)"
       },
       {
-        "command": "gitbranchquickdiff.defaultref",
-        "title": "Revert quick diff ref to user setting"
-      },
-      {
         "command": "gitbranchquickdiff.deactivate",
         "title": "Deactivate GitBranchQuickDiff",
         "enablement": "config.gitbranchquickdiff.enabled"
