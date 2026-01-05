@@ -33,6 +33,36 @@ A command in the new Quick Diff view restores the file to the ref state (modific
 
 The gutter diff inline editor view shows the source of the original file (git worktree or the extension ref) or an editable field to choose the diff original file.
 
+## Variable substitution
+
+While specifying the ref, you can use variable substitution:
+
+### Standard VS Code Variables
+
+- `${workspaceFolderBasename}`
+
+### Environment Variables
+
+- `${env:VAR_NAME}` - Reference environment variables (e.g., `${env:HOME}`)
+
+### Configuration Variables
+
+- `${config:setting.name}` - Reference VS Code settings (e.g., `${config:editor.fontSize}`)
+
+### Git-Specific Variables
+
+- `${git:lastTag}` - The last reachable tag from current HEAD
+- `${git:lastTag:RegEx}` - The last reachable tag matching a regex pattern (e.g., `${git:lastTag:^v[0-9].*}` for semver tags starting with 'v')
+- `${git:track}` - The tracking branch in format `remote/branch`
+- `${git:push}` - The push target branch
+
+### Examples
+
+- Compare with the last tag: `${git:lastTag}`
+- Compare with the last version tag: `${git:lastTag:^v[0-9]}`
+- Compare with tracking branch: `${git:track}`
+- Use a custom environment variable: `${env:MY_BRANCH_REF}`
+
 ## Requirements
 
 This extension requires Git.
