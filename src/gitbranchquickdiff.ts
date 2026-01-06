@@ -166,6 +166,10 @@ function refreshQuickDiff() {
     }
 
     // Trigger a refresh of quick diff by firing the change event on each repository
+    // Note: We use the undocumented internal repository API to fire the change event.
+    // This is necessary because VSCode caches quick diff results and doesn't automatically
+    // refresh when our configuration changes. The _onDidChangeOriginalResource event
+    // triggers VSCode to re-query the provideOriginalResource function.
     gitAPI.repositories.forEach(repository => {
         try {
             const undocumentedRepository = (repository as any).repository;
@@ -173,7 +177,7 @@ function refreshQuickDiff() {
                 undocumentedRepository._onDidChangeOriginalResource.fire();
             }
         } catch (error) {
-            console.log("Failed to refresh quick diff for repository:", error);
+            console.error("Failed to refresh quick diff for repository:", error);
         }
     });
 }
