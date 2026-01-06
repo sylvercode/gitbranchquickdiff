@@ -143,8 +143,9 @@ async function disableExtention() {
     refreshQuickDiff();
 }
 
-function resetRefToDefault() {
-    vscode.workspace.getConfiguration(EXTENTION_NAME).update(REF_CONFIG_NAME, undefined, false);
+async function resetRefToDefault() {
+    await vscode.workspace.getConfiguration(EXTENTION_NAME).update(REF_CONFIG_NAME, undefined, false);
+    refreshQuickDiff();
 }
 
 async function changeRef() {
@@ -153,7 +154,8 @@ async function changeRef() {
     });
 
     if (input) {
-        vscode.workspace.getConfiguration(EXTENTION_NAME).update(REF_CONFIG_NAME, input, false);
+        await vscode.workspace.getConfiguration(EXTENTION_NAME).update(REF_CONFIG_NAME, input, false);
+        refreshQuickDiff();
     }
 }
 
