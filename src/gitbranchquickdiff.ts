@@ -167,9 +167,13 @@ function refreshQuickDiff() {
 
     // Trigger a refresh of quick diff by firing the change event on each repository
     gitAPI.repositories.forEach(repository => {
-        const undocumentedRepository = (repository as any).repository;
-        if (undocumentedRepository && undocumentedRepository._onDidChangeOriginalResource) {
-            undocumentedRepository._onDidChangeOriginalResource.fire();
+        try {
+            const undocumentedRepository = (repository as any).repository;
+            if (undocumentedRepository && undocumentedRepository._onDidChangeOriginalResource) {
+                undocumentedRepository._onDidChangeOriginalResource.fire();
+            }
+        } catch (error) {
+            console.log("Failed to refresh quick diff for repository:", error);
         }
     });
 }
