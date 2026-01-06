@@ -133,12 +133,14 @@ function registerCommand(context: vscode.ExtensionContext, command: string, call
         vscode.commands.registerCommand(command, callback, thisArg));
 }
 
-function enableExtention() {
-    vscode.workspace.getConfiguration(EXTENTION_NAME).update(ENABLED_CONFIG_NAME, true, false);
+async function enableExtention() {
+    await vscode.workspace.getConfiguration(EXTENTION_NAME).update(ENABLED_CONFIG_NAME, true, false);
+    refreshQuickDiff();
 }
 
-function disableExtention() {
-    vscode.workspace.getConfiguration(EXTENTION_NAME).update(ENABLED_CONFIG_NAME, false, false);
+async function disableExtention() {
+    await vscode.workspace.getConfiguration(EXTENTION_NAME).update(ENABLED_CONFIG_NAME, false, false);
+    refreshQuickDiff();
 }
 
 function resetRefToDefault() {
@@ -153,6 +155,21 @@ async function changeRef() {
     if (input) {
         vscode.workspace.getConfiguration(EXTENTION_NAME).update(REF_CONFIG_NAME, input, false);
     }
+}
+
+function refreshQuickDiff() {
+    const gitAPI = getGitAPI();
+    if (!gitAPI) {
+        return;
+    }
+
+    // Trigger a refresh of quick diff by firing the change event on each repository
+    gitAPI.repositories.forEach(repository => {
+        const undocumentedRepository = (repository as any).repository;
+        if (undocumentedRepository && undocumentedRepository._onDidChangeOriginalResource) {
+            undocumentedRepository._onDidChangeOriginalResource.fire();
+        }
+    });
 }
 
 function provideOriginalResource(this: vscode.QuickDiffProvider, uri: vscode.Uri, token: vscode.CancellationToken): vscode.ProviderResult<vscode.Uri> {
