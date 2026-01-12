@@ -96,7 +96,7 @@ VS Code extension that replaces the default diff gutter with comparisons against
 
 1. **Provider Lifecycle & Re-registration**: Providers are disposed and re-registered (not updated in-place) when:
    - Repository HEAD changes (branch checkout) - detected via `repository.state.onDidChange`
-   - Configuration changes (`gitbranchquickdiff.ref` or `gitbranchquickdiff.enabled`)
+   - Configuration changes (`gitbranchquickdiff.ref`, `gitbranchquickdiff.enabled`, `gitbranchquickdiff.displayMode`, `gitbranchquickdiff.defaultAction`)
    - **QuickDiffProvider**: Disposed and re-registered with updated label on changes
    - **Tree View**: Refreshed via `_onDidChangeTreeData.fire()` (not re-registered)
    - **FileDecorationProvider**: Registered once per repository, never re-registered; updates via `setChanges()`
@@ -110,7 +110,12 @@ VS Code extension that replaces the default diff gutter with comparisons against
    }
    ```
 
-3. **Configuration Scope**: All settings are workspace-scoped (third param `false` in `update()` calls) to allow per-workspace refs.
+3. **Workspace State Pattern**: All user-modified settings are stored in workspace state (not configuration):
+   - Pattern: `gitbranchquickdiff.{setting}.${repository.rootUri.fsPath}` for per-repository values
+   - Settings: `enabled`, `ref`, `displayMode`, `defaultAction`
+   - Configuration settings serve as fallback defaults when workspace state is `undefined`
+   - Commands write to workspace state, enabling per-repository customization
+   - Provider methods like `getCurrentRef()`, `getCurrentEnabled()`, `getCurrentDisplayMode()`, `getCurrentDefaultAction()` check workspace state first, then fall back to configuration
 
 4. **Change Tracking Strategy**: Tree view shows union of multiple sources:
    - **Diff changes** (ref vs HEAD): `repository.diffBetween(ref, 'HEAD')` - committed differences
@@ -258,15 +263,23 @@ Set `gitbranchquickdiff.ref` to test variable patterns:
 ## Configuration Schema
 
 ```typescript
-gitbranchquickdiff.enabled: boolean (default: true)
 gitbranchquickdiff.ref: string (default: "main")
+gitbranchquickdiff.enabled: boolean (default: true)
 gitbranchquickdiff.displayMode: "list" | "tree" (default: "list")
 gitbranchquickdiff.defaultAction: "openChanges" | "openFile" (default: "openChanges")
 ```
 
+**Configuration vs Workspace State:**
+- All settings (`enabled`, `ref`, `displayMode`, `defaultAction`) have defaults in configuration
+- Actual values are stored in workspace state per repository (pattern: `gitbranchquickdiff.{setting}.{repository.rootUri.fsPath}`)
+- Commands write to workspace state, not configuration
+- Configuration values are used only as fallbacks when workspace state is undefined
+- This allows per-repository customization stored in workspace state
+
 The `ref` value undergoes variable substitution before use, enabling dynamic references based on workspace state.
-The `displayMode` value is persisted across sessions to remember user's preferred view mode.
-The `defaultAction` value controls what happens when clicking a file in the tree view and which inline icon is hidden.
+The `enabled` value is persisted in workspace state per repository to allow per-repo activation.
+The `displayMode` value is persisted in workspace state to remember user's preferred view mode per repository.
+The `defaultAction` value is persisted in workspace state to control what happens when clicking a file in the tree view per repository.
 
 ## Common Development Patterns
 
