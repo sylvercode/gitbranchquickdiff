@@ -12,7 +12,7 @@ export const EXTENTION_NAME = 'gitbranchquickdiff';
 const ENABLED_CONFIG_NAME = 'enabled';
 const REF_CONFIG_NAME = 'ref';
 const WORKSPACE_STATE_KEY_PREFIX = 'gitbranchquickdiff.cachedRef';
-const DEFAULT_REF = 'HEAD';
+const DEFAULT_REF = 'main';
 
 // Store the extension context globally for command access
 let extensionContext: vscode.ExtensionContext | undefined;
