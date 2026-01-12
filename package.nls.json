@@ -2,7 +2,7 @@
     "description": "Compare your files against a git reference instead of HEAD",
     "configuration.title": "Git Branch Quick Diff",
     "configuration.enabled.description": "Use Git Branch Quick Diff as diff gutter instead of VSCode default. The file of the ref will be used as base for the comparison.",
-    "configuration.ref.description": "Name of the ref to use for comparison. Variable substitution can be used.",
+    "configuration.ref.description": "Default ref to use for comparison when no workspace-specific ref is set. The actual ref used is stored per-workspace and can be changed with 'Set quick diff ref' command. Variable substitution can be used.",
     "configuration.displayMode.description": "Display mode for the changes view: list or tree.",
     "configuration.defaultAction.description": "Default action when clicking on a changed file: open diff (openChanges) or open file directly (openFile).",
     "views.changes.name": "Quick Diff",
