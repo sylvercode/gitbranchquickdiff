@@ -12,9 +12,15 @@ export const EXTENTION_NAME = 'gitbranchquickdiff';
 const ENABLED_CONFIG_NAME = 'enabled';
 const REF_CONFIG_NAME = 'ref';
 const WORKSPACE_STATE_KEY_PREFIX = 'gitbranchquickdiff.cachedRef';
+const DEFAULT_REF = 'HEAD';
 
 // Store the extension context globally for command access
 let extensionContext: vscode.ExtensionContext | undefined;
+
+// Helper function to generate workspace state key for a repository
+function getWorkspaceStateKey(repository: git.Repository): string {
+    return `${WORKSPACE_STATE_KEY_PREFIX}.${repository.rootUri.fsPath}`;
+}
 
 export function activate(context: vscode.ExtensionContext) {
     extensionContext = context;
@@ -246,14 +252,10 @@ class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
         return this.repository.rootUri.fsPath;
     }
 
-    private getWorkspaceStateKey(): string {
-        return `${WORKSPACE_STATE_KEY_PREFIX}.${this.getRepoKey()}`;
-    }
-
     async getCurrentRef(): Promise<string> {
         // Try workspace state first (cached ref)
         const cachedRef = this.context.workspaceState.get<string>(
-            this.getWorkspaceStateKey()
+            getWorkspaceStateKey(this.repository)
         );
         
         if (cachedRef !== undefined) {
@@ -262,7 +264,7 @@ class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
         
         // Fall back to setting (default ref)
         const configRef = vscode.workspace.getConfiguration(EXTENTION_NAME)
-            .get<string>(REF_CONFIG_NAME) ?? "HEAD";
+            .get<string>(REF_CONFIG_NAME) ?? DEFAULT_REF;
         
         return await vscodeVariables.variables(this.repository, configRef);
     }
@@ -315,7 +317,8 @@ async function changeRef() {
         const firstProvider = currentProviders.values().next().value as CustomQuickDiffProvider;
         currentValue = await firstProvider.getCurrentRef();
     } else {
-        currentValue = vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME) ?? "main";
+        // Fall back to setting default
+        currentValue = vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME) ?? DEFAULT_REF;
     }
 
     const input = await vscode.window.showInputBox({
@@ -327,9 +330,8 @@ async function changeRef() {
     if (input !== undefined) {
         // Save to workspace state instead of settings
         for (const repository of currentRepositories.values()) {
-            const repoKey = repository.rootUri.fsPath;
             await extensionContext.workspaceState.update(
-                `${WORKSPACE_STATE_KEY_PREFIX}.${repoKey}`,
+                getWorkspaceStateKey(repository),
                 input
             );
         }
@@ -350,9 +352,8 @@ async function resetRef() {
 
     // Clear workspace state for all repositories
     for (const repository of currentRepositories.values()) {
-        const repoKey = repository.rootUri.fsPath;
         await extensionContext.workspaceState.update(
-            `${WORKSPACE_STATE_KEY_PREFIX}.${repoKey}`,
+            getWorkspaceStateKey(repository),
             undefined
         );
     }
