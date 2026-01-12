@@ -247,11 +247,6 @@ class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
         this._label = await this.getCurrentRef();
     }
 
-    private getRepoKey(): string {
-        // Create unique key per repository for multi-root workspaces
-        return this.repository.rootUri.fsPath;
-    }
-
     async getCurrentRef(): Promise<string> {
         // Try workspace state first (cached ref)
         const cachedRef = this.context.workspaceState.get<string>(
