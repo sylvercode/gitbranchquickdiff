@@ -11,6 +11,7 @@ export const EXTENTION_NAME = 'gitbranchquickdiff';
 
 const ENABLED_CONFIG_NAME = 'enabled';
 const REF_CONFIG_NAME = 'ref';
+const WORKSPACE_STATE_KEY_PREFIX = 'gitbranchquickdiff.cachedRef';
 
 // Store the extension context globally for command access
 let extensionContext: vscode.ExtensionContext | undefined;
@@ -245,11 +246,14 @@ class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
         return this.repository.rootUri.fsPath;
     }
 
+    private getWorkspaceStateKey(): string {
+        return `${WORKSPACE_STATE_KEY_PREFIX}.${this.getRepoKey()}`;
+    }
+
     async getCurrentRef(): Promise<string> {
         // Try workspace state first (cached ref)
-        const repoKey = this.getRepoKey();
         const cachedRef = this.context.workspaceState.get<string>(
-            `gitbranchquickdiff.cachedRef.${repoKey}`
+            this.getWorkspaceStateKey()
         );
         
         if (cachedRef !== undefined) {
@@ -299,6 +303,12 @@ function disableExtention() {
 }
 
 async function changeRef() {
+    if (!extensionContext) {
+        vscode.window.showErrorMessage(l10n('error.extensionNotInitialized'));
+        console.error('[GitBranchQuickDiff] Extension context not available in changeRef command');
+        return;
+    }
+
     // Get current ref from active repository's workspace state or setting
     let currentValue = '';
     if (currentProviders.size > 0) {
@@ -314,12 +324,12 @@ async function changeRef() {
         value: currentValue,
     });
 
-    if (input !== undefined && extensionContext) {
+    if (input !== undefined) {
         // Save to workspace state instead of settings
         for (const repository of currentRepositories.values()) {
             const repoKey = repository.rootUri.fsPath;
             await extensionContext.workspaceState.update(
-                `gitbranchquickdiff.cachedRef.${repoKey}`,
+                `${WORKSPACE_STATE_KEY_PREFIX}.${repoKey}`,
                 input
             );
         }
@@ -333,6 +343,8 @@ async function changeRef() {
 
 async function resetRef() {
     if (!extensionContext) {
+        vscode.window.showErrorMessage(l10n('error.extensionNotInitialized'));
+        console.error('[GitBranchQuickDiff] Extension context not available in resetRef command');
         return;
     }
 
@@ -340,7 +352,7 @@ async function resetRef() {
     for (const repository of currentRepositories.values()) {
         const repoKey = repository.rootUri.fsPath;
         await extensionContext.workspaceState.update(
-            `gitbranchquickdiff.cachedRef.${repoKey}`,
+            `${WORKSPACE_STATE_KEY_PREFIX}.${repoKey}`,
             undefined
         );
     }

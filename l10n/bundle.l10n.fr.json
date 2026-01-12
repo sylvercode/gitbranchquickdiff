@@ -1,5 +1,6 @@
 {
     "error.gitExtensionNotFound": "Extension Git introuvable",
+    "error.extensionNotInitialized": "L'extension GitBranchQuickDiff n'est pas correctement initialisée",
     "prompt.setRefTitle": "référence",
     "prompt.setRefPlaceholder": "Entrez la référence git à utiliser pour la comparaison rapide (branche, tag, hash de commit, etc.)",
     "confirm.restoreFile": "Restaurer « {0} » à l'état de {1} ?",

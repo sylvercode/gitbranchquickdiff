@@ -1,5 +1,6 @@
 {
     "error.gitExtensionNotFound": "Git extension not found",
+    "error.extensionNotInitialized": "GitBranchQuickDiff extension is not properly initialized",
     "prompt.setRefTitle": "ref",
     "prompt.setRefPlaceholder": "Enter the git reference to use for quick diff (branch, tag, commit hash, etc.)",
     "confirm.restoreFile": "Restore \"{0}\" to the state of {1}?",
