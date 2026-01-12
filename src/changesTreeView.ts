@@ -494,7 +494,12 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
             }
         } catch (error) {
             console.error('Failed to get changes:', error);
-            return [];
+            // Show message that ref was not found
+            this._decorationProvider.setChanges([]);
+            return [new MessageItem(l10n('message.refNotFound', ref), {
+                command: 'gitbranchquickdiff.changeref',
+                title: l10n('command.changeRef')
+            })];
         }
     }
 
