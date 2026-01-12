@@ -12,7 +12,11 @@ export const EXTENTION_NAME = 'gitbranchquickdiff';
 const ENABLED_CONFIG_NAME = 'enabled';
 const REF_CONFIG_NAME = 'ref';
 
+// Store the extension context globally for command access
+let extensionContext: vscode.ExtensionContext | undefined;
+
 export function activate(context: vscode.ExtensionContext) {
+    extensionContext = context;
     registerCommands(context);
 
     registerToGitExtention(context);
@@ -22,6 +26,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.activate`, enableExtention);
     registerCommand(context, `${EXTENTION_NAME}.deactivate`, disableExtention);
     registerCommand(context, `${EXTENTION_NAME}.changeref`, changeRef);
+    registerCommand(context, `${EXTENTION_NAME}.resetRef`, resetRef);
     registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, refreshChanges);
     registerCommand(context, `${EXTENTION_NAME}.openChange`, openChangeCommand);
     registerCommand(context, `${EXTENTION_NAME}.openFile`, openFileCommand);
@@ -69,7 +74,7 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
         if (existingProvider) {
             existingProvider.disposable.dispose();
 
-            const provider = new CustomQuickDiffProvider(git, repository);
+            const provider = new CustomQuickDiffProvider(git, repository, context);
             await provider.updateLabel();
             const disposable = vscode.window.registerQuickDiffProvider(
                 { pattern: `${repository.rootUri.fsPath}/**` },
@@ -107,7 +112,7 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     const registerRepo = async (repository: git.Repository) => {
         console.log(`[GitBranchQuickDiff] Registering provider for repository: ${repository.rootUri.fsPath}`);
 
-        const provider = new CustomQuickDiffProvider(git, repository);
+        const provider = new CustomQuickDiffProvider(git, repository, context);
         await provider.updateLabel();
         const disposable = vscode.window.registerQuickDiffProvider(
             { pattern: `${repository.rootUri.fsPath}/**` },
@@ -209,17 +214,35 @@ class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
 
     constructor(
         private git: git.API,
-        private repository: git.Repository) {
+        private repository: git.Repository,
+        private context: vscode.ExtensionContext) {
     }
 
     public async updateLabel() {
         this._label = await this.getCurrentRef();
     }
 
+    private getRepoKey(): string {
+        // Create unique key per repository for multi-root workspaces
+        return this.repository.rootUri.fsPath;
+    }
+
     async getCurrentRef(): Promise<string> {
-        return await vscodeVariables.variables(
-            this.repository,
-            vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME) ?? "HEAD");
+        // Try workspace state first (cached ref)
+        const repoKey = this.getRepoKey();
+        const cachedRef = this.context.workspaceState.get<string>(
+            `gitbranchquickdiff.cachedRef.${repoKey}`
+        );
+        
+        if (cachedRef !== undefined) {
+            return await vscodeVariables.variables(this.repository, cachedRef);
+        }
+        
+        // Fall back to setting (default ref)
+        const configRef = vscode.workspace.getConfiguration(EXTENTION_NAME)
+            .get<string>(REF_CONFIG_NAME) ?? "HEAD";
+        
+        return await vscodeVariables.variables(this.repository, configRef);
     }
 
     async provideOriginalResource(uri: vscode.Uri): Promise<vscode.Uri | undefined> {
@@ -257,20 +280,93 @@ function disableExtention() {
     vscode.workspace.getConfiguration(EXTENTION_NAME).update(ENABLED_CONFIG_NAME, false, false);
 }
 
-function resetRefToDefault() {
-    vscode.workspace.getConfiguration(EXTENTION_NAME).update(REF_CONFIG_NAME, undefined, false);
-}
-
 async function changeRef() {
+    // Get current ref from active repository's workspace state or setting
+    let currentValue = '';
+    if (currentProviders.size > 0) {
+        const firstProvider = currentProviders.values().next().value as CustomQuickDiffProvider;
+        currentValue = await firstProvider.getCurrentRef();
+    } else {
+        currentValue = vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME) ?? "main";
+    }
+
     const input = await vscode.window.showInputBox({
         title: l10n('prompt.setRefTitle'),
         prompt: l10n('prompt.setRefPlaceholder'),
-        value: vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME),
+        value: currentValue,
     });
 
-    if (input) {
-        vscode.workspace.getConfiguration(EXTENTION_NAME).update(REF_CONFIG_NAME, input, false);
+    if (input !== undefined && extensionContext) {
+        // Save to workspace state instead of settings
+        for (const repository of currentRepositories.values()) {
+            const repoKey = repository.rootUri.fsPath;
+            await extensionContext.workspaceState.update(
+                `gitbranchquickdiff.cachedRef.${repoKey}`,
+                input
+            );
+        }
+
+        // Trigger provider re-registration by firing config change
+        // This will cause all providers to re-register with new ref
+        vscode.commands.executeCommand('gitbranchquickdiff.refreshChanges');
+        
+        // Manually trigger re-registration for all providers
+        for (const [repository, provider] of currentProviders.entries()) {
+            // Update provider label
+            await provider.updateLabel();
+            
+            // Update tree view title
+            const treeView = currentTreeViews.get(repository);
+            if (treeView) {
+                const isEnabled = vscode.workspace.getConfiguration(EXTENTION_NAME).get<boolean>('enabled', true);
+                const ref = await provider.getCurrentRef();
+                treeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
+            }
+            
+            // Refresh tree view
+            const treeDataProvider = currentTreeDataProviders.get(repository);
+            if (treeDataProvider) {
+                treeDataProvider.refresh();
+            }
+        }
     }
+}
+
+async function resetRef() {
+    if (!extensionContext) {
+        return;
+    }
+
+    // Clear workspace state for all repositories
+    for (const repository of currentRepositories.values()) {
+        const repoKey = repository.rootUri.fsPath;
+        await extensionContext.workspaceState.update(
+            `gitbranchquickdiff.cachedRef.${repoKey}`,
+            undefined
+        );
+    }
+
+    // Manually trigger re-registration for all providers
+    for (const [repository, provider] of currentProviders.entries()) {
+        // Update provider label
+        await provider.updateLabel();
+        
+        // Update tree view title
+        const treeView = currentTreeViews.get(repository);
+        if (treeView) {
+            const isEnabled = vscode.workspace.getConfiguration(EXTENTION_NAME).get<boolean>('enabled', true);
+            const ref = await provider.getCurrentRef();
+            treeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
+        }
+        
+        // Refresh tree view
+        const treeDataProvider = currentTreeDataProviders.get(repository);
+        if (treeDataProvider) {
+            treeDataProvider.refresh();
+        }
+    }
+
+    vscode.window.showInformationMessage(l10n('info.refResetToDefault'));
 }
 
 // Global maps to store current tree providers and repositories for command access

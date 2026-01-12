@@ -9,6 +9,7 @@
     "info.restoredFile": "Restored \"{0}\" to {1} state",
     "info.restoredFiles.single": "Restored 1 file to {0} state",
     "info.restoredFiles.multiple": "Restored {0} files to {1} state",
+    "info.refResetToDefault": "Quick diff ref has been reset to the default from settings",
     "error.restoreFailed": "Failed to restore file: {0}",
     "warning.restorePartialFailure": "Restored {0} file(s), failed to restore {1} file(s)",
     "message.quickDiffDeactivated": "Quick Diff is deactivated. Use the activate command to enable it.",

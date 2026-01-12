@@ -9,6 +9,7 @@
     "views.changes.contextualTitle": "Modifications de Comparaison Rapide",
     "command.activate.title": "Activer GitBranchQuickDiff",
     "command.changeref.title": "Définir la référence de comparaison rapide",
+    "command.resetRef.title": "Rétablir la référence aux paramètres utilisateur",
     "command.deactivate.title": "Désactiver GitBranchQuickDiff",
     "command.refreshChanges.title": "Actualiser",
     "command.openChange.title": "Ouvrir les modifications",

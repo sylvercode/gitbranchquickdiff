@@ -9,6 +9,7 @@
     "views.changes.contextualTitle": "Quick Diff Changes",
     "command.activate.title": "Activate GitBranchQuickDiff",
     "command.changeref.title": "Set quick diff ref",
+    "command.resetRef.title": "Revert quick diff ref to user setting",
     "command.deactivate.title": "Deactivate GitBranchQuickDiff",
     "command.refreshChanges.title": "Refresh",
     "command.openChange.title": "Open Changes",
