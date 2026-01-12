@@ -69,9 +69,16 @@ This extension requires Git.
 
 ## Extension Settings
 
-|Name|Description|
-|-|-|
-|enabled|Use Git Branch Quick Diff as diff gutter instead of VSCode default. The file of the ref will be used as base for the comparison.|
-|ref|Name of the ref to use for comparison. Variable substitution can be used.|
-|displayMode|Display mode for the changes view: list or tree.|
-|defaultAction|Default action when clicking on a changed file: open diff (openChanges) or open file directly (openFile).|
+The extension provides configuration defaults for the following settings. **Note:** The actual values used are stored per-repository in VS Code's workspace state, allowing different settings for each repository. The configuration values serve as defaults when no workspace state is set.
+
+|Name|Description|Default|
+|-|-|-|
+|ref|Name of the ref to use for comparison. Variable substitution can be used. Can be changed per-repository using the command in the Quick Diff view.|`main`|
+|displayMode|Display mode for the changes view: `list` or `tree`. Can be toggled per-repository in the Quick Diff view menu.|`list`|
+|defaultAction|Default action when clicking on a changed file: `openChanges` (open diff) or `openFile` (open file directly). Can be changed per-repository in the Quick Diff view menu.|`openChanges`|
+
+**Per-Repository Settings:**
+- Each repository can have its own `enabled` state (activate/deactivate in Quick Diff view menu)
+- Each repository can have its own `ref`, `displayMode`, and `defaultAction` settings
+- Settings are stored in workspace state and persist across VS Code sessions
+- The extension is **enabled by default** for all repositories
