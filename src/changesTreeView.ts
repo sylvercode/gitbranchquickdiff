@@ -237,6 +237,8 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
         // Check if the extension is enabled
         const isEnabled = vscode.workspace.getConfiguration('gitbranchquickdiff').get<boolean>('enabled', true);
         if (!isEnabled) {
+            // Clear all decorations when disabled
+            this._decorationProvider.setChanges([]);
             return [new MessageItem(l10n('message.quickDiffDeactivated'), {
                 command: 'gitbranchquickdiff.activate',
                 title: l10n('command.activate')
@@ -677,6 +679,12 @@ export class ChangesDecorationProvider implements vscode.FileDecorationProvider 
     }
 
     provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+        // Check if the extension is enabled
+        const isEnabled = vscode.workspace.getConfiguration('gitbranchquickdiff').get<boolean>('enabled', true);
+        if (!isEnabled) {
+            return undefined;
+        }
+
         const key = uri.toString();
         const change = this.changes.get(key);
         console.log(`[ChangesDecorationProvider] provideFileDecoration called for ${key}, found: ${change ? 'yes' : 'no'}`);
