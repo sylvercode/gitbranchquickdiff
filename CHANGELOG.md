@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gutter diff inline editor view source selector
 - Badges in Explorer View, SCM changes view and Editor Tabs.
 - Internationalization
+- Use workspace cache for current ref
 
 ## [0.1.1] - 2023-04-17
 
