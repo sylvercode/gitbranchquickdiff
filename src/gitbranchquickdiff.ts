@@ -89,6 +89,24 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
         }
     };
 
+    // Store a function to re-register all providers (for use by commands)
+    reregisterAllProvidersFunc = async () => {
+        for (const repository of providers.keys()) {
+            await reregisterQuickDiffProvider(repository);
+        }
+
+        // Refresh all tree views (which will update decorations)
+        for (const [repository, { treeDataProvider, treeView }] of treeViews) {
+            const provider = providers.get(repository)?.provider;
+            if (provider) {
+                const isEnabled = vscode.workspace.getConfiguration(EXTENTION_NAME).get<boolean>('enabled', true);
+                const ref = await provider.getCurrentRef();
+                treeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
+            }
+            treeDataProvider.refresh();
+        }
+    };
+
     // Helper function to setup HEAD change listener
     const setupHeadChangeListener = (repository: git.Repository) => {
         context.subscriptions.push(repository.state.onDidChange(async () => {
@@ -306,28 +324,9 @@ async function changeRef() {
             );
         }
 
-        // Trigger provider re-registration by firing config change
-        // This will cause all providers to re-register with new ref
-        vscode.commands.executeCommand('gitbranchquickdiff.refreshChanges');
-        
-        // Manually trigger re-registration for all providers
-        for (const [repository, provider] of currentProviders.entries()) {
-            // Update provider label
-            await provider.updateLabel();
-            
-            // Update tree view title
-            const treeView = currentTreeViews.get(repository);
-            if (treeView) {
-                const isEnabled = vscode.workspace.getConfiguration(EXTENTION_NAME).get<boolean>('enabled', true);
-                const ref = await provider.getCurrentRef();
-                treeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
-            }
-            
-            // Refresh tree view
-            const treeDataProvider = currentTreeDataProviders.get(repository);
-            if (treeDataProvider) {
-                treeDataProvider.refresh();
-            }
+        // Re-register all providers with the new ref
+        if (reregisterAllProvidersFunc) {
+            await reregisterAllProvidersFunc();
         }
     }
 }
@@ -346,24 +345,9 @@ async function resetRef() {
         );
     }
 
-    // Manually trigger re-registration for all providers
-    for (const [repository, provider] of currentProviders.entries()) {
-        // Update provider label
-        await provider.updateLabel();
-        
-        // Update tree view title
-        const treeView = currentTreeViews.get(repository);
-        if (treeView) {
-            const isEnabled = vscode.workspace.getConfiguration(EXTENTION_NAME).get<boolean>('enabled', true);
-            const ref = await provider.getCurrentRef();
-            treeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
-        }
-        
-        // Refresh tree view
-        const treeDataProvider = currentTreeDataProviders.get(repository);
-        if (treeDataProvider) {
-            treeDataProvider.refresh();
-        }
+    // Re-register all providers to use the default setting
+    if (reregisterAllProvidersFunc) {
+        await reregisterAllProvidersFunc();
     }
 
     vscode.window.showInformationMessage(l10n('info.refResetToDefault'));
@@ -374,6 +358,9 @@ const currentTreeDataProviders = new Map<git.Repository, ChangesTreeDataProvider
 const currentTreeViews = new Map<git.Repository, vscode.TreeView<any>>();
 const currentRepositories = new Map<git.Repository, git.Repository>();
 const currentProviders = new Map<git.Repository, CustomQuickDiffProvider>();
+
+// Store the reregistration function for access from commands
+let reregisterAllProvidersFunc: (() => Promise<void>) | undefined;
 
 function refreshChanges() {
     for (const treeDataProvider of currentTreeDataProviders.values()) {
