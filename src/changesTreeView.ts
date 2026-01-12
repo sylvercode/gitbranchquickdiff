@@ -198,7 +198,9 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
 
     constructor(
         private repository: Repository,
-        private getRef: () => Promise<string>
+        private getRef: () => Promise<string>,
+        private getDefaultAction: () => string,
+        private getEnabled: () => boolean
     ) {
         this._decorationProvider = new ChangesDecorationProvider();
     }
@@ -235,7 +237,7 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
         }
 
         // Check if the extension is enabled
-        const isEnabled = vscode.workspace.getConfiguration('gitbranchquickdiff').get<boolean>('enabled', true);
+        const isEnabled = this.getEnabled();
         if (!isEnabled) {
             // Clear all decorations when disabled
             this._decorationProvider.setChanges([]);
@@ -448,7 +450,8 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                     color,
                     change.status,
                     isInDiff,
-                    this._displayMode
+                    this._displayMode,
+                    this.getDefaultAction()
                 );
             });
 
@@ -684,12 +687,6 @@ export class ChangesDecorationProvider implements vscode.FileDecorationProvider 
     }
 
     provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
-        // Check if the extension is enabled
-        const isEnabled = vscode.workspace.getConfiguration('gitbranchquickdiff').get<boolean>('enabled', true);
-        if (!isEnabled) {
-            return undefined;
-        }
-
         const key = uri.toString();
         const change = this.changes.get(key);
         console.log(`[ChangesDecorationProvider] provideFileDecoration called for ${key}, found: ${change ? 'yes' : 'no'}`);
@@ -719,7 +716,8 @@ export class ChangedFile extends vscode.TreeItem {
         public readonly color: vscode.ThemeColor | undefined,
         public readonly status: ExtendedStatus,
         public readonly isInDiff: boolean,
-        displayMode: DisplayMode = DisplayMode.List
+        displayMode: DisplayMode = DisplayMode.List,
+        defaultAction: string = 'openChanges'
     ) {
         super(resourceUri, vscode.TreeItemCollapsibleState.None);
 
@@ -753,8 +751,7 @@ export class ChangedFile extends vscode.TreeItem {
             color
         );
 
-        // Set default click command based on current setting
-        const defaultAction = vscode.workspace.getConfiguration('gitbranchquickdiff').get<string>('defaultAction', 'openChanges');
+        // Set default click command based on parameter
         if (defaultAction === 'openFile') {
             this.command = {
                 command: 'gitbranchquickdiff.openFile',
