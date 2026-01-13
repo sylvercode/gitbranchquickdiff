@@ -196,6 +196,26 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
     private _displayMode: DisplayMode = DisplayMode.List;
     private _currentDirectoryNodes: DirectoryNode[] = [];
 
+    // Performance: Separate caches for different git operations
+    // Cache for diffBetween(ref, 'HEAD') - invalidated only when ref or HEAD changes
+    private _cachedDiffBetween: {
+        changes: any[];
+        ref: string;
+        headCommit: string;
+    } | undefined;
+
+    // Cache for diffWith(ref) - invalidated when ref or working tree changes
+    private _cachedDiffWith: {
+        changes: any[];
+        ref: string;
+        indexCount: number;
+        workingTreeCount: number;
+        mergeCount: number;
+    } | undefined;
+
+    // Performance: Debounce rapid refreshes
+    private _refreshTimeout: NodeJS.Timeout | undefined;
+
     constructor(
         private repository: Repository,
         private getRef: () => Promise<string>,
@@ -219,11 +239,18 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
     }
 
     refresh(): void {
-        this._onDidChangeTreeData.fire();
-    }
+        // Performance: Debounce rapid refreshes (e.g., from multiple file changes)
+        if (this._refreshTimeout) {
+            clearTimeout(this._refreshTimeout);
+        }
 
-    getCurrentDirectoryNodes(): DirectoryNode[] {
-        return this._currentDirectoryNodes;
+        this._refreshTimeout = setTimeout(() => {
+            // Performance: Clear caches on explicit refresh
+            this._cachedDiffBetween = undefined;
+            this._cachedDiffWith = undefined;
+            this._onDidChangeTreeData.fire();
+            this._refreshTimeout = undefined;
+        }, 100); // 100ms debounce
     }
 
     getTreeItem(element: ChangedFile | DirectoryNode | MessageItem): vscode.TreeItem {
@@ -253,28 +280,60 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
         }
 
         try {
-            // Get changes between ref and HEAD (committed differences)
-            const diffChanges = await this.repository.diffBetween(ref, 'HEAD');
+            // Performance: Smart caching with separate invalidation strategies
+            const currentHeadCommit = this.repository.state.HEAD?.commit;
+            const currentIndexCount = this.repository.state.indexChanges.length;
+            const currentWorkingTreeCount = this.repository.state.workingTreeChanges.length;
+            const currentMergeCount = this.repository.state.mergeChanges.length;
 
-            // Get changes between ref and working tree (to detect restored files)
-            const diffWithWorkingTree = await this.repository.diffWith(ref);
+            // Check diffBetween cache - only invalidate when ref or HEAD changes
+            let diffChanges: any[];
+            const diffBetweenCacheValid = this._cachedDiffBetween !== undefined &&
+                this._cachedDiffBetween.ref === ref &&
+                this._cachedDiffBetween.headCommit === currentHeadCommit;
+
+            if (diffBetweenCacheValid) {
+                diffChanges = this._cachedDiffBetween!.changes;
+            } else {
+                // Get changes between ref and HEAD (committed differences)
+                diffChanges = await this.repository.diffBetween(ref, 'HEAD');
+                this._cachedDiffBetween = {
+                    changes: diffChanges,
+                    ref: ref,
+                    headCommit: currentHeadCommit ?? ''
+                };
+            }
+
+            // Check diffWith cache - invalidate when ref or working tree state changes
+            let diffWithWorkingTree: any[];
+            const diffWithCacheValid = this._cachedDiffWith !== undefined &&
+                this._cachedDiffWith.ref === ref &&
+                this._cachedDiffWith.indexCount === currentIndexCount &&
+                this._cachedDiffWith.workingTreeCount === currentWorkingTreeCount &&
+                this._cachedDiffWith.mergeCount === currentMergeCount;
+
+            if (diffWithCacheValid) {
+                diffWithWorkingTree = this._cachedDiffWith!.changes;
+            } else {
+                // Get changes between ref and working tree (to detect restored files)
+                diffWithWorkingTree = await this.repository.diffWith(ref);
+                this._cachedDiffWith = {
+                    changes: diffWithWorkingTree,
+                    ref: ref,
+                    indexCount: currentIndexCount,
+                    workingTreeCount: currentWorkingTreeCount,
+                    mergeCount: currentMergeCount
+                };
+            }
 
             // Get all working tree changes (staged, unstaged, and untracked)
             const indexChanges = this.repository.state.indexChanges;
             const workingTreeChanges = this.repository.state.workingTreeChanges;
             const mergeChanges = this.repository.state.mergeChanges;
 
-            // Track which files are in diff between ref and HEAD
-            const diffChangeUris = new Set<string>();
-            for (const change of diffChanges) {
-                diffChangeUris.add(change.uri.toString());
-            }
-
-            // Track which files are in diff between ref and working tree
-            const diffWithWorkingTreeUris = new Set<string>();
-            for (const change of diffWithWorkingTree) {
-                diffWithWorkingTreeUris.add(change.uri.toString());
-            }
+            // Performance: Track which files are in diff - build sets efficiently
+            const diffChangeUris = new Set<string>(diffChanges.map(c => c.uri.toString()));
+            const diffWithWorkingTreeUris = new Set<string>(diffWithWorkingTree.map(c => c.uri.toString()));
 
             // Track all git statuses separately (staged, unstaged, merge)
             const indexStatusMap = new Map<string, Status>();

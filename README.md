@@ -52,14 +52,15 @@ While specifying the ref, you can use variable substitution:
 ### Git-Specific Variables
 
 - `${git:lastTag}` - The last reachable tag from current HEAD
-- `${git:lastTag:RegEx}` - The last reachable tag matching a regex pattern (e.g., `${git:lastTag:^v[0-9].*}` for semver tags starting with 'v')
+- `${git:lastTag:pattern}` - The last reachable tag matching a glob pattern (e.g., `${git:lastTag:v*}` for tags starting with 'v', or `${git:lastTag:release-*}` for release tags)
 - `${git:track}` - The tracking branch in format `remote/branch`
 - `${git:push}` - The push target branch
 
 ### Examples
 
 - Compare with the last tag: `${git:lastTag}`
-- Compare with the last version tag: `${git:lastTag:^v[0-9]}`
+- Compare with tags starting with 'v': `${git:lastTag:v*}`
+- Compare with release tags: `${git:lastTag:release-*}`
 - Compare with tracking branch: `${git:track}`
 - Use a custom environment variable: `${env:MY_BRANCH_REF}`
 
@@ -76,6 +77,7 @@ The extension provides configuration defaults for the following settings. **Note
 |ref|Name of the ref to use for comparison. Variable substitution can be used. Can be changed per-repository using the command in the Quick Diff view.|`main`|
 |displayMode|Display mode for the changes view: `list` or `tree`. Can be toggled per-repository in the Quick Diff view menu.|`list`|
 |defaultAction|Default action when clicking on a changed file: `openChanges` (open diff) or `openFile` (open file directly). Can be changed per-repository in the Quick Diff view menu.|`openChanges`|
+|tagCacheTTL|Cache duration in minutes for git tag lookups (used by `${git:lastTag}` variable). Set to `0` to disable time-based cache invalidation (cache only clears on HEAD changes or manual refresh). Higher values reduce git overhead but may delay detection of new tags.|`1`|
 
 **Per-Repository Settings:**
 - Each repository can have its own `enabled` state (activate/deactivate in Quick Diff view menu)

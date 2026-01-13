@@ -4,6 +4,7 @@
     "configuration.ref.description": "Référence par défaut à utiliser pour la comparaison lorsqu'aucune référence spécifique à l'espace de travail n'est définie. La référence réellement utilisée est stockée par espace de travail et peut être modifiée avec la commande 'Définir la référence de comparaison rapide'. La substitution de variables peut être utilisée.",
     "configuration.displayMode.description": "Mode d'affichage par défaut pour la vue des modifications : liste ou arborescence.",
     "configuration.defaultAction.description": "Action par défaut lors du clic sur un fichier modifié : ouvrir la comparaison (openChanges) ou ouvrir directement le fichier (openFile).",
+    "configuration.tagCacheTTL.description": "Durée du cache en minutes pour les recherches de tags git. Définir à 0 pour désactiver l'invalidation du cache basée sur le temps (le cache ne se vide que lors des changements de HEAD ou d'un rafraîchissement manuel). Par défaut 1 minute.",
     "views.changes.name": "Comparaison Rapide",
     "views.changes.contextualTitle": "Modifications de Comparaison Rapide",
     "command.activate.title": "Activer GitBranchQuickDiff",

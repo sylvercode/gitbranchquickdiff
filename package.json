@@ -6,7 +6,7 @@
   "repository": {
     "url": "https://github.com/sylvercode/gitbranchquickdiff"
   },
-  "version": "0.3.3",
+  "version": "0.3.4",
   "enabledApiProposals": [
     "quickDiffProvider"
   ],
@@ -46,6 +46,12 @@
           ],
           "default": "openChanges",
           "description": "%configuration.defaultAction.description%"
+        },
+        "gitbranchquickdiff.tagCacheTTL": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "description": "%configuration.tagCacheTTL.description%"
         }
       }
     },
