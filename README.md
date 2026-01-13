@@ -52,14 +52,15 @@ While specifying the ref, you can use variable substitution:
 ### Git-Specific Variables
 
 - `${git:lastTag}` - The last reachable tag from current HEAD
-- `${git:lastTag:RegEx}` - The last reachable tag matching a regex pattern (e.g., `${git:lastTag:^v[0-9].*}` for semver tags starting with 'v')
+- `${git:lastTag:pattern}` - The last reachable tag matching a glob pattern (e.g., `${git:lastTag:v*}` for tags starting with 'v', or `${git:lastTag:release-*}` for release tags)
 - `${git:track}` - The tracking branch in format `remote/branch`
 - `${git:push}` - The push target branch
 
 ### Examples
 
 - Compare with the last tag: `${git:lastTag}`
-- Compare with the last version tag: `${git:lastTag:^v[0-9]}`
+- Compare with tags starting with 'v': `${git:lastTag:v*}`
+- Compare with release tags: `${git:lastTag:release-*}`
 - Compare with tracking branch: `${git:track}`
 - Use a custom environment variable: `${env:MY_BRANCH_REF}`
 
