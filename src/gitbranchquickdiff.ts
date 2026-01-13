@@ -283,6 +283,17 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             e.affectsConfiguration(`${EXTENTION_NAME}.${DEFAULT_ACTION_CONFIG_NAME}`)) {
             console.log(`[GitBranchQuickDiff] Configuration changed`);
 
+            // Clear workspace state overrides for changed configurations
+            if (e.affectsConfiguration(`${EXTENTION_NAME}.${REF_CONFIG_NAME}`)) {
+                await extensionContext?.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+            }
+            if (e.affectsConfiguration(`${EXTENTION_NAME}.${DISPLAY_MODE_CONFIG_NAME}`)) {
+                await extensionContext?.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
+            }
+            if (e.affectsConfiguration(`${EXTENTION_NAME}.${DEFAULT_ACTION_CONFIG_NAME}`)) {
+                await extensionContext?.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
+            }
+
             // Re-register all QuickDiffProviders
             for (const repository of providers.keys()) {
                 await reregisterQuickDiffProvider(repository);
