@@ -531,6 +531,9 @@ const currentProviders = new Map<git.Repository, CustomQuickDiffProvider>();
 let reregisterAllProvidersFunc: (() => Promise<void>) | undefined;
 
 function refreshChanges() {
+    // Clear tag cache to force fresh tag lookup
+    vscodeVariables.clearTagCache();
+
     for (const treeDataProvider of currentTreeDataProviders.values()) {
         treeDataProvider.refresh();
     }

@@ -1,10 +1,28 @@
 import * as vscode from 'vscode';
 import * as process from 'process';
 import * as path from 'path';
+import { promisify } from 'util';
+import { execFile } from 'child_process';
 import { Repository, RefType } from './git';
+
+const execFileAsync = promisify(execFile);
+
+// Performance: Cache for lastTag lookups
+const lastTagCache = new Map<string, { tag: string; headCommit: string; timestamp: number }>();
+
+// Get cache TTL from configuration (in minutes, 0 = no time-based invalidation)
+function getCacheTTL(): number {
+    const minutes = vscode.workspace.getConfiguration('gitbranchquickdiff').get<number>('tagCacheTTL', 1);
+    return minutes === 0 ? Infinity : minutes * 60000; // Convert minutes to milliseconds, 0 = Infinity
+}
 
 export function variables(gitRepo: Repository, str: string, recursive = false) {
     return processVariables(gitRepo, str, recursive);
+}
+
+// Clear the tag cache (called by refresh command)
+export function clearTagCache() {
+    lastTagCache.clear();
 }
 
 async function processVariables(gitRepo: Repository, str: string, recursive = false): Promise<string> {
@@ -55,47 +73,47 @@ async function processVariables(gitRepo: Repository, str: string, recursive = fa
     });
 
     // ${git:lastTag} - get the last tag
-    // ${git:lastTag:RegEx} - get the last tag matching regex
+    // ${git:lastTag:RegEx} - get the last tag matching regex (treated as glob pattern for git describe)
     const lastTagMatches = str.matchAll(/\${git:lastTag(?::([^}]+))?}/g);
     for (const match of lastTagMatches) {
         let lastTag = '';
-        const regexPattern = match[1]; // Capture the optional regex pattern
+        const pattern = match[1]; // Capture the optional pattern (glob for git describe)
 
         if (gitRepo && gitRepo.state.HEAD?.commit) {
             try {
-                // Get all tags sorted by creation date
-                const allTags = await gitRepo.getRefs({
-                    pattern: 'refs/tags',
-                    sort: 'creatordate'
-                });
+                const currentHeadCommit = gitRepo.state.HEAD.commit;
+                const cacheKey = `${gitRepo.rootUri.fsPath}:${pattern || 'all'}:${currentHeadCommit}`;
 
-                // Compile regex if pattern provided
-                let regex: RegExp | null = null;
-                if (regexPattern) {
+                // Performance: Check cache first
+                const cached = lastTagCache.get(cacheKey);
+                const now = Date.now();
+                const cacheTTL = getCacheTTL();
+                if (cached && (now - cached.timestamp) < cacheTTL && cached.headCommit === currentHeadCommit) {
+                    lastTag = cached.tag;
+                } else {
+                    // Performance: Use git describe --tags which is MUCH faster than getRefs + getMergeBase
                     try {
-                        regex = new RegExp(regexPattern);
-                    } catch (regexError) {
-                        console.error('Invalid regex pattern for git:lastTag:', regexError);
-                    }
-                }
+                        const args = ['describe', '--tags', '--abbrev=0'];
+                        if (pattern) {
+                            // Pattern is treated as a glob pattern for git describe --match
+                            args.push(`--match=${pattern}`);
+                        }
 
-                // Find first tag that is reachable from current branch and matches criteria
-                for (const tag of allTags) {
-                    if (tag.commit && tag.name) {
-                        try {
-                            // Check if tag commit is an ancestor of HEAD
-                            const mergeBase = await gitRepo.getMergeBase(tag.commit, gitRepo.state.HEAD.commit!);
-                            if (mergeBase === tag.commit) {
-                                // Tag is reachable, check if it matches regex (if provided)
-                                if (!regex || regex.test(tag.name)) {
-                                    lastTag = tag.name;
-                                    break; // Found the first matching tag, stop searching
-                                }
-                            }
-                        } catch {
-                            // Ignore errors for individual tags
+                        const { stdout } = await execFileAsync('git', args, {
+                            cwd: gitRepo.rootUri.fsPath,
+                            timeout: 5000 // 5 second timeout
+                        });
+
+                        lastTag = stdout.trim();
+                    } catch (error: any) {
+                        // If git describe fails (e.g., no tags found), log and leave empty
+                        if (error.code !== 128) { // 128 = no tags found (expected)
+                            console.warn(`git describe failed: ${error.message}`);
                         }
                     }
+
+                    // Cache the result (even if empty)
+                    lastTagCache.set(cacheKey, { tag: lastTag, headCommit: currentHeadCommit, timestamp: now });
                 }
             } catch (error) {
                 console.error('Failed to get last tag:', error);

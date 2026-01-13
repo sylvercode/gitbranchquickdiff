@@ -76,6 +76,7 @@ The extension provides configuration defaults for the following settings. **Note
 |ref|Name of the ref to use for comparison. Variable substitution can be used. Can be changed per-repository using the command in the Quick Diff view.|`main`|
 |displayMode|Display mode for the changes view: `list` or `tree`. Can be toggled per-repository in the Quick Diff view menu.|`list`|
 |defaultAction|Default action when clicking on a changed file: `openChanges` (open diff) or `openFile` (open file directly). Can be changed per-repository in the Quick Diff view menu.|`openChanges`|
+|tagCacheTTL|Cache duration in minutes for git tag lookups (used by `${git:lastTag}` variable). Set to `0` to disable time-based cache invalidation (cache only clears on HEAD changes or manual refresh). Higher values reduce git overhead but may delay detection of new tags.|`1`|
 
 **Per-Repository Settings:**
 - Each repository can have its own `enabled` state (activate/deactivate in Quick Diff view menu)
