@@ -21,17 +21,23 @@ const DEFAULT_ENABLED = true;
 const DEFAULT_DISPLAY_MODE = 'list';
 const DEFAULT_DEFAULT_ACTION = 'openChanges';
 
-// Store the extension context globally for command access
-let extensionContext: vscode.ExtensionContext | undefined;
-
 // Global helper functions to access workspace state
-async function getCurrentRef(repository: git.Repository): Promise<string> {
-    if (!extensionContext) {
-        return DEFAULT_REF;
+function getRawRef(context: vscode.ExtensionContext): string {
+    // Try global workspace state first
+    const cachedRef = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_REF);
+
+    if (cachedRef !== undefined) {
+        return cachedRef;
     }
 
+    // Fall back to setting (default ref)
+    return vscode.workspace.getConfiguration(EXTENTION_NAME)
+        .get<string>(REF_CONFIG_NAME) ?? DEFAULT_REF;
+}
+
+async function getCurrentRef(context: vscode.ExtensionContext, repository: git.Repository): Promise<string> {
     // Try global workspace state first
-    const cachedRef = extensionContext.workspaceState.get<string>(WORKSPACE_STATE_KEY_REF);
+    const cachedRef = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_REF);
 
     if (cachedRef !== undefined) {
         return await vscodeVariables.variables(repository, cachedRef);
@@ -44,23 +50,15 @@ async function getCurrentRef(repository: git.Repository): Promise<string> {
     return await vscodeVariables.variables(repository, configRef);
 }
 
-function getCurrentEnabled(): boolean {
-    if (!extensionContext) {
-        return DEFAULT_ENABLED;
-    }
-
+function getCurrentEnabled(context: vscode.ExtensionContext): boolean {
     // Get from global workspace state, default to DEFAULT_ENABLED if not set
-    const cachedEnabled = extensionContext.workspaceState.get<boolean>(WORKSPACE_STATE_KEY_ENABLED);
+    const cachedEnabled = context.workspaceState.get<boolean>(WORKSPACE_STATE_KEY_ENABLED);
     return cachedEnabled ?? DEFAULT_ENABLED;
 }
 
-function getCurrentDisplayMode(): string {
-    if (!extensionContext) {
-        return DEFAULT_DISPLAY_MODE;
-    }
-
+function getCurrentDisplayMode(context: vscode.ExtensionContext): string {
     // Try global workspace state first
-    const cachedDisplayMode = extensionContext.workspaceState.get<string>(WORKSPACE_STATE_KEY_DISPLAY_MODE);
+    const cachedDisplayMode = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_DISPLAY_MODE);
 
     if (cachedDisplayMode !== undefined) {
         return cachedDisplayMode;
@@ -71,13 +69,9 @@ function getCurrentDisplayMode(): string {
         .get<string>(DISPLAY_MODE_CONFIG_NAME) ?? DEFAULT_DISPLAY_MODE;
 }
 
-function getCurrentDefaultAction(): string {
-    if (!extensionContext) {
-        return DEFAULT_DEFAULT_ACTION;
-    }
-
+function getCurrentDefaultAction(context: vscode.ExtensionContext): string {
     // Try global workspace state first
-    const cachedDefaultAction = extensionContext.workspaceState.get<string>(WORKSPACE_STATE_KEY_DEFAULT_ACTION);
+    const cachedDefaultAction = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_DEFAULT_ACTION);
 
     if (cachedDefaultAction !== undefined) {
         return cachedDefaultAction;
@@ -89,29 +83,27 @@ function getCurrentDefaultAction(): string {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-    extensionContext = context;
     registerCommands(context);
-
     registerToGitExtention(context);
 }
 
 function registerCommands(context: vscode.ExtensionContext) {
-    registerCommand(context, `${EXTENTION_NAME}.activate`, enableExtention);
-    registerCommand(context, `${EXTENTION_NAME}.deactivate`, disableExtention);
-    registerCommand(context, `${EXTENTION_NAME}.changeref`, changeRef);
-    registerCommand(context, `${EXTENTION_NAME}.resetRef`, resetRef);
+    registerCommand(context, `${EXTENTION_NAME}.activate`, () => enableExtention(context));
+    registerCommand(context, `${EXTENTION_NAME}.deactivate`, () => disableExtention(context));
+    registerCommand(context, `${EXTENTION_NAME}.changeref`, () => changeRef(context));
+    registerCommand(context, `${EXTENTION_NAME}.resetRef`, () => resetRef(context));
     registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, refreshChanges);
-    registerCommand(context, `${EXTENTION_NAME}.openChange`, openChangeCommand);
-    registerCommand(context, `${EXTENTION_NAME}.openFile`, openFileCommand);
-    registerCommand(context, `${EXTENTION_NAME}.openDirectoryChanges`, openDirectoryChangesCommand);
-    registerCommand(context, `${EXTENTION_NAME}.openAllChanges`, openAllChangesCommand);
-    registerCommand(context, `${EXTENTION_NAME}.viewAsList`, setListMode);
-    registerCommand(context, `${EXTENTION_NAME}.viewAsTree`, setTreeMode);
-    registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenFile`, setDefaultActionOpenFile);
-    registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenChanges`, setDefaultActionOpenChanges);
-    registerCommand(context, `${EXTENTION_NAME}.restoreFile`, restoreFileCommand);
-    registerCommand(context, `${EXTENTION_NAME}.restoreDirectory`, restoreDirectoryCommand);
-    registerCommand(context, `${EXTENTION_NAME}.clearWorkspaceCache`, clearWorkspaceCache);
+    registerCommand(context, `${EXTENTION_NAME}.openChange`, (fileItem: ChangedFile) => openChangeCommand(context, fileItem));
+    registerCommand(context, `${EXTENTION_NAME}.open File`, (fileItem: ChangedFile) => openFileCommand(context, fileItem));
+    registerCommand(context, `${EXTENTION_NAME}.openDirectoryChanges`, (directoryNode: any) => openDirectoryChangesCommand(context, directoryNode));
+    registerCommand(context, `${EXTENTION_NAME}.openAllChanges`, () => openAllChangesCommand(context));
+    registerCommand(context, `${EXTENTION_NAME}.viewAsList`, () => setListMode(context));
+    registerCommand(context, `${EXTENTION_NAME}.viewAsTree`, () => setTreeMode(context));
+    registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenFile`, () => setDefaultActionOpenFile(context));
+    registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenChanges`, () => setDefaultActionOpenChanges(context));
+    registerCommand(context, `${EXTENTION_NAME}.restoreFile`, (fileItem: ChangedFile) => restoreFileCommand(context, fileItem));
+    registerCommand(context, `${EXTENTION_NAME}.restoreDirectory`, (directoryNode: any) => restoreDirectoryCommand(context, directoryNode));
+    registerCommand(context, `${EXTENTION_NAME}.clearWorkspaceCache`, () => clearWorkspaceCache(context));
 }
 
 async function registerToGitExtention(context: vscode.ExtensionContext) {
@@ -152,7 +144,7 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
         if (existingProvider) {
             existingProvider.disposable.dispose();
 
-            const provider = new CustomQuickDiffProvider(git, repository);
+            const provider = new CustomQuickDiffProvider(context, git, repository);
             await provider.updateLabel();
             const disposable = vscode.window.registerQuickDiffProvider(
                 { pattern: `${repository.rootUri.fsPath}/**` },
@@ -174,8 +166,8 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
 
         // Refresh single tree view (which will update decorations)
         if (singleTreeView && singleTreeDataProvider && firstRepository) {
-            const isEnabled = getCurrentEnabled();
-            const ref = await getCurrentRef(firstRepository);
+            const isEnabled = getCurrentEnabled(context);
+            const ref = await getCurrentRef(context, firstRepository);
             singleTreeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
             singleTreeDataProvider.refresh();
         }
@@ -190,8 +182,8 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             // Refresh single tree view (which will update decorations)
             // Only update if this is the first repository (the one shown in the tree view)
             if (singleTreeView && singleTreeDataProvider && firstRepository === repository) {
-                const isEnabled = getCurrentEnabled();
-                const ref = await getCurrentRef(repository);
+                const isEnabled = getCurrentEnabled(context);
+                const ref = await getCurrentRef(context, repository);
                 singleTreeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
                 vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', isEnabled);
                 singleTreeDataProvider.refresh();
@@ -202,7 +194,7 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     const registerRepo = async (repository: git.Repository) => {
         console.log(`[GitBranchQuickDiff] Registering provider for repository: ${repository.rootUri.fsPath}`);
 
-        const provider = new CustomQuickDiffProvider(git, repository);
+        const provider = new CustomQuickDiffProvider(context, git, repository);
         await provider.updateLabel();
         const disposable = vscode.window.registerQuickDiffProvider(
             { pattern: `${repository.rootUri.fsPath}/**` },
@@ -224,12 +216,12 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
 
             const treeDataProvider = new ChangesTreeDataProvider(
                 repository,
-                () => getCurrentRef(repository),
-                () => getCurrentDefaultAction(),
-                () => getCurrentEnabled()
+                () => getCurrentRef(context, repository),
+                () => getCurrentDefaultAction(context),
+                () => getCurrentEnabled(context)
             );
             // Set display mode from workspace state/configuration
-            const savedDisplayMode = getCurrentDisplayMode();
+            const savedDisplayMode = getCurrentDisplayMode(context);
             treeDataProvider.setDisplayMode(savedDisplayMode as 'list' | 'tree');
 
             const treeView = vscode.window.createTreeView(`${EXTENTION_NAME}.changes`, {
@@ -237,8 +229,8 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
                 showCollapseAll: true
             });
             // Set initial title with ref
-            const isEnabled = getCurrentEnabled();
-            const ref = await getCurrentRef(repository);
+            const isEnabled = getCurrentEnabled(context);
+            const ref = await getCurrentRef(context, repository);
             treeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
             context.subscriptions.push(treeView);
             console.log(`[GitBranchQuickDiff] Tree view created`);
@@ -255,9 +247,9 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             currentTreeDataProvider = treeDataProvider;
 
             // Set contexts
-            const displayMode = getCurrentDisplayMode();
-            const enabled = getCurrentEnabled();
-            const defaultAction = getCurrentDefaultAction();
+            const displayMode = getCurrentDisplayMode(context);
+            const enabled = getCurrentEnabled(context);
+            const defaultAction = getCurrentDefaultAction(context);
             vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', displayMode);
             vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', enabled);
             vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', defaultAction);
@@ -285,13 +277,13 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
 
             // Clear workspace state overrides for changed configurations
             if (e.affectsConfiguration(`${EXTENTION_NAME}.${REF_CONFIG_NAME}`)) {
-                await extensionContext?.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+                await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
             }
             if (e.affectsConfiguration(`${EXTENTION_NAME}.${DISPLAY_MODE_CONFIG_NAME}`)) {
-                await extensionContext?.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
+                await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
             }
             if (e.affectsConfiguration(`${EXTENTION_NAME}.${DEFAULT_ACTION_CONFIG_NAME}`)) {
-                await extensionContext?.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
+                await context.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
             }
 
             // Re-register all QuickDiffProviders
@@ -300,9 +292,9 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             }
 
             // Get global settings once
-            const isEnabled = getCurrentEnabled();
-            const displayMode = getCurrentDisplayMode();
-            const defaultAction = getCurrentDefaultAction();
+            const isEnabled = getCurrentEnabled(context);
+            const displayMode = getCurrentDisplayMode(context);
+            const defaultAction = getCurrentDefaultAction(context);
 
             // Update global contexts once
             vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', displayMode);
@@ -311,7 +303,7 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
 
             // Refresh single tree view (which will update decorations)
             if (singleTreeView && singleTreeDataProvider && firstRepository) {
-                const ref = await getCurrentRef(firstRepository);
+                const ref = await getCurrentRef(context, firstRepository);
                 singleTreeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
                 singleTreeDataProvider.setDisplayMode(displayMode as 'list' | 'tree');
                 singleTreeDataProvider.refresh();
@@ -329,12 +321,13 @@ class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
     }
 
     constructor(
+        private context: vscode.ExtensionContext,
         private git: git.API,
         private repository: git.Repository) {
     }
 
     public async updateLabel() {
-        this._label = await getCurrentRef(this.repository);
+        this._label = await getCurrentRef(this.context, this.repository);
     }
 
     async provideOriginalResource(uri: vscode.Uri): Promise<vscode.Uri | undefined> {
@@ -342,7 +335,7 @@ class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
             return undefined;
         }
 
-        const isEnabled = getCurrentEnabled();
+        const isEnabled = getCurrentEnabled(this.context);
         if (!isEnabled) {
             return undefined;
         }
@@ -354,7 +347,7 @@ class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
         }
 
         // Get the custom reference from settings
-        const ref = await getCurrentRef(this.repository);
+        const ref = await getCurrentRef(this.context, this.repository);
         return this.git.toGitUri(uri, ref);
     }
 }
@@ -364,13 +357,9 @@ function registerCommand(context: vscode.ExtensionContext, command: string, call
         vscode.commands.registerCommand(command, callback, thisArg));
 }
 
-async function enableExtention() {
-    if (!extensionContext) {
-        return;
-    }
-
+async function enableExtention(context: vscode.ExtensionContext) {
     // Save to global workspace state
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_ENABLED, true);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_ENABLED, true);
 
     // Set context immediately for UI responsiveness
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', true);
@@ -381,13 +370,9 @@ async function enableExtention() {
     }
 }
 
-async function disableExtention() {
-    if (!extensionContext) {
-        return;
-    }
-
+async function disableExtention(context: vscode.ExtensionContext) {
     // Save to global workspace state
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_ENABLED, false);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_ENABLED, false);
 
     // Set context immediately for UI responsiveness
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', false);
@@ -403,21 +388,10 @@ async function disableExtention() {
     }
 }
 
-async function changeRef() {
-    if (!extensionContext) {
-        vscode.window.showErrorMessage(l10n('error.extensionNotInitialized'));
-        console.error('[GitBranchQuickDiff] Extension context not available in changeRef command');
-        return;
-    }
-
-    // Get current ref from workspace state or setting
-    let currentValue = '';
-    if (firstRepository) {
-        currentValue = await getCurrentRef(firstRepository);
-    } else {
-        // Fall back to setting default
-        currentValue = vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME) ?? DEFAULT_REF;
-    }
+async function changeRef(context: vscode.ExtensionContext) {
+    // Get raw (unsubstituted) ref value to show in input box
+    // This preserves variable syntax like ${git:lastTag}
+    const currentValue = getRawRef(context);
 
     const input = await vscode.window.showInputBox({
         title: l10n('prompt.setRefTitle'),
@@ -427,7 +401,7 @@ async function changeRef() {
 
     if (input !== undefined) {
         // Save to global workspace state
-        await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_REF, input);
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, input);
 
         // Re-register all providers with the new ref
         if (reregisterAllProvidersFunc) {
@@ -436,15 +410,9 @@ async function changeRef() {
     }
 }
 
-async function resetRef() {
-    if (!extensionContext) {
-        vscode.window.showErrorMessage(l10n('error.extensionNotInitialized'));
-        console.error('[GitBranchQuickDiff] Extension context not available in resetRef command');
-        return;
-    }
-
+async function resetRef(context: vscode.ExtensionContext) {
     // Clear global workspace state
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
 
     // Re-register all providers to use the default setting
     if (reregisterAllProvidersFunc) {
@@ -454,13 +422,7 @@ async function resetRef() {
     vscode.window.showInformationMessage(l10n('info.refResetToDefault'));
 }
 
-async function clearWorkspaceCache() {
-    if (!extensionContext) {
-        vscode.window.showErrorMessage(l10n('error.extensionNotInitialized'));
-        console.error('[GitBranchQuickDiff] Extension context not available in clearWorkspaceCache command');
-        return;
-    }
-
+async function clearWorkspaceCache(context: vscode.ExtensionContext) {
     // Confirm action
     const answer = await vscode.window.showWarningMessage(
         'Clear all GitBranchQuickDiff workspace cache? This will reset all settings (ref, enabled state, display mode, default action).',
@@ -473,10 +435,10 @@ async function clearWorkspaceCache() {
     }
 
     // Clear all global workspace state
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_ENABLED, undefined);
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_ENABLED, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
 
     // Re-register all providers to use the default settings
     if (reregisterAllProvidersFunc) {
@@ -503,7 +465,7 @@ function refreshChanges() {
     }
 }
 
-async function openChangeCommand(fileItem: ChangedFile) {
+async function openChangeCommand(context: vscode.ExtensionContext, fileItem: ChangedFile) {
     if (!gitAPI) {
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
@@ -512,13 +474,13 @@ async function openChangeCommand(fileItem: ChangedFile) {
     // Find the repository for this URI
     for (const repository of gitAPI.repositories) {
         if (fileItem.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
-            await openChange(gitAPI, repository, () => getCurrentRef(repository), fileItem.resourceUri, fileItem.originalUri, fileItem.status);
+            await openChange(gitAPI, repository, () => getCurrentRef(context, repository), fileItem.resourceUri, fileItem.originalUri, fileItem.status);
             return;
         }
     }
 }
 
-async function openFileCommand(fileItem: ChangedFile) {
+async function openFileCommand(context: vscode.ExtensionContext, fileItem: ChangedFile) {
     // For deleted files, use openChange to show the file from the ref
     if (fileItem.status === ExtendedStatus.INDEX_DELETED ||
         fileItem.status === ExtendedStatus.DELETED ||
@@ -532,7 +494,7 @@ async function openFileCommand(fileItem: ChangedFile) {
         // Find the repository for this URI
         for (const repository of gitAPI.repositories) {
             if (fileItem.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
-                await openChange(gitAPI, repository, () => getCurrentRef(repository), fileItem.resourceUri, fileItem.originalUri, fileItem.status);
+                await openChange(gitAPI, repository, () => getCurrentRef(context, repository), fileItem.resourceUri, fileItem.originalUri, fileItem.status);
                 return;
             }
         }
@@ -578,7 +540,7 @@ function buildChangesArray(
     return changes;
 }
 
-async function openDirectoryChangesCommand(directoryNode: any) {
+async function openDirectoryChangesCommand(context: vscode.ExtensionContext, directoryNode: any) {
     if (!gitAPI) {
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
@@ -622,7 +584,7 @@ async function openDirectoryChangesCommand(directoryNode: any) {
             const files = await getFilesRecursive(directoryNode);
 
             // Build changes array for vscode.changes command
-            const ref = await getCurrentRef(repository);
+            const ref = await getCurrentRef(context, repository);
             const changes = buildChangesArray(files, gitAPI, ref);
 
             // Open all changes in multi-file diff view
@@ -634,7 +596,7 @@ async function openDirectoryChangesCommand(directoryNode: any) {
     }
 }
 
-async function openAllChangesCommand() {
+async function openAllChangesCommand(context: vscode.ExtensionContext) {
     if (!gitAPI || !firstRepository || !currentTreeDataProvider) {
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
@@ -666,7 +628,7 @@ async function openAllChangesCommand() {
     }
 
     // Build changes array for vscode.changes command
-    const ref = await getCurrentRef(firstRepository);
+    const ref = await getCurrentRef(context, firstRepository);
     const changes = buildChangesArray(allFiles, gitAPI, ref);
 
     // Open all changes in multi-file diff view
@@ -675,7 +637,7 @@ async function openAllChangesCommand() {
     }
 }
 
-async function restoreFileCommand(fileItem: ChangedFile) {
+async function restoreFileCommand(context: vscode.ExtensionContext, fileItem: ChangedFile) {
     if (!gitAPI) {
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
@@ -686,7 +648,7 @@ async function restoreFileCommand(fileItem: ChangedFile) {
         if (fileItem.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
             // Show confirmation dialog
             const fileName = path.basename(fileItem.resourceUri.fsPath);
-            const ref = await getCurrentRef(repository);
+            const ref = await getCurrentRef(context, repository);
             const answer = await vscode.window.showWarningMessage(
                 l10n('confirm.restoreFile', fileName, ref),
                 { modal: true },
@@ -737,7 +699,7 @@ async function restoreFileCommand(fileItem: ChangedFile) {
     }
 }
 
-async function restoreDirectoryCommand(directoryNode: any) {
+async function restoreDirectoryCommand(context: vscode.ExtensionContext, directoryNode: any) {
     if (!gitAPI) {
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
@@ -785,7 +747,7 @@ async function restoreDirectoryCommand(directoryNode: any) {
             }
 
             // Show confirmation dialog with file count
-            const ref = await getCurrentRef(repository);
+            const ref = await getCurrentRef(context, repository);
             const message = files.length === 1
                 ? l10n('confirm.restoreDirectory.single', ref)
                 : l10n('confirm.restoreDirectory.multiple', files.length, ref);
@@ -857,13 +819,9 @@ async function restoreDirectoryCommand(directoryNode: any) {
     }
 }
 
-async function setListMode() {
-    if (!extensionContext) {
-        return;
-    }
-
+async function setListMode(context: vscode.ExtensionContext) {
     // Save to global workspace state
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, 'list');
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, 'list');
 
     // Update tree data provider
     if (currentTreeDataProvider) {
@@ -872,13 +830,9 @@ async function setListMode() {
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', 'list');
 }
 
-async function setTreeMode() {
-    if (!extensionContext) {
-        return;
-    }
-
+async function setTreeMode(context: vscode.ExtensionContext) {
     // Save to global workspace state
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, 'tree');
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, 'tree');
 
     // Update tree data provider
     if (currentTreeDataProvider) {
@@ -887,13 +841,9 @@ async function setTreeMode() {
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', 'tree');
 }
 
-async function setDefaultActionOpenFile() {
-    if (!extensionContext) {
-        return;
-    }
-
+async function setDefaultActionOpenFile(context: vscode.ExtensionContext) {
     // Save to global workspace state
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, 'openFile');
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, 'openFile');
 
     // Update context
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', 'openFile');
@@ -904,13 +854,9 @@ async function setDefaultActionOpenFile() {
     }
 }
 
-async function setDefaultActionOpenChanges() {
-    if (!extensionContext) {
-        return;
-    }
-
+async function setDefaultActionOpenChanges(context: vscode.ExtensionContext) {
     // Save to global workspace state
-    await extensionContext.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, 'openChanges');
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, 'openChanges');
 
     // Update context
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', 'openChanges');
