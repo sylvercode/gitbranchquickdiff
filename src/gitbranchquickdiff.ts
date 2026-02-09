@@ -1,11 +1,15 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as child_process from 'child_process';
+import * as util from 'util';
 import * as vscodeVariables from './vscode-variables';
 import { getGitAPI } from './gitApi';
 import * as git from './git';
 import { Status } from './git';
 import { ChangedFile, ChangesTreeDataProvider, DirectoryNode, openChange, ExtendedStatus } from './changesTreeView';
 import { l10n } from './l10n';
+
+const execFile = util.promisify(child_process.execFile);
 
 export const EXTENTION_NAME = 'gitbranchquickdiff';
 
@@ -94,7 +98,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.resetRef`, () => resetRef(context));
     registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, refreshChanges);
     registerCommand(context, `${EXTENTION_NAME}.openChange`, (fileItem: ChangedFile) => openChangeCommand(context, fileItem));
-    registerCommand(context, `${EXTENTION_NAME}.open File`, (fileItem: ChangedFile) => openFileCommand(context, fileItem));
+    registerCommand(context, `${EXTENTION_NAME}.openFile`, (fileItem: ChangedFile) => openFileCommand(context, fileItem));
     registerCommand(context, `${EXTENTION_NAME}.openDirectoryChanges`, (directoryNode: any) => openDirectoryChangesCommand(context, directoryNode));
     registerCommand(context, `${EXTENTION_NAME}.openAllChanges`, () => openAllChangesCommand(context));
     registerCommand(context, `${EXTENTION_NAME}.viewAsList`, () => setListMode(context));
@@ -131,6 +135,13 @@ async function registerToGitExtention(context: vscode.ExtensionContext) {
 async function registerProvider(context: vscode.ExtensionContext, git: git.API) {
     // Store git API reference for command access
     gitAPI = git;
+
+    // Register our custom content provider for historical file versions
+    const contentProvider = new GitBranchQuickDiffContentProvider(context, git);
+    context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider(QUICKDIFF_SCHEME, contentProvider)
+    );
+    console.log(`[GitBranchQuickDiff] Registered content provider for scheme: ${QUICKDIFF_SCHEME}`);
 
     const providers = new Map<git.Repository, { provider: CustomQuickDiffProvider; disposable: vscode.Disposable }>();
     let singleTreeDataProvider: ChangesTreeDataProvider | undefined;
@@ -312,6 +323,42 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     }));
 }
 
+// Custom URI scheme for our quick diff provider
+const QUICKDIFF_SCHEME = 'gitbranchquickdiff';
+
+// Content provider for historical file versions
+class GitBranchQuickDiffContentProvider implements vscode.TextDocumentContentProvider {
+    constructor(
+        private context: vscode.ExtensionContext,
+        private git: git.API) {
+    }
+
+    async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+        // Parse the query to get the original file URI and ref
+        const query = JSON.parse(uri.query);
+        const originalUri = vscode.Uri.parse(query.uri);
+        const ref = query.ref;
+
+        // Find the repository for this file
+        for (const repository of this.git.repositories) {
+            if (originalUri.fsPath.startsWith(repository.rootUri.fsPath)) {
+                try {
+                    // Get the relative path
+                    const relativePath = path.relative(repository.rootUri.fsPath, originalUri.fsPath);
+                    // Get content from git using binary encoding to preserve original bytes
+                    const content = await repository.show(ref, relativePath);
+                    // Return as-is - VS Code will apply the correct encoding based on the working file
+                    return content;
+                } catch (error) {
+                    console.error(`[GitBranchQuickDiff] Error getting content for ${originalUri.fsPath} at ${ref}:`, error);
+                    return '';
+                }
+            }
+        }
+        return '';
+    }
+}
+
 class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
     readonly id = EXTENTION_NAME;
     private _label: string = 'HEAD';
@@ -348,7 +395,13 @@ class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
 
         // Get the custom reference from settings
         const ref = await getCurrentRef(this.context, this.repository);
-        return this.git.toGitUri(uri, ref);
+
+        // Create a custom URI with our scheme that includes the original URI and ref
+        // This allows our content provider to retrieve the content with proper encoding handling
+        return uri.with({
+            scheme: QUICKDIFF_SCHEME,
+            query: JSON.stringify({ uri: uri.toString(), ref })
+        });
     }
 }
 
@@ -465,27 +518,48 @@ function refreshChanges() {
     }
 }
 
-async function openChangeCommand(context: vscode.ExtensionContext, fileItem: ChangedFile) {
+async function openChangeCommand(context: vscode.ExtensionContext, fileItem: ChangedFile | { resourceUri: vscode.Uri; originalUri: vscode.Uri; status: ExtendedStatus; existsInRef?: boolean }) {
     if (!gitAPI) {
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
     }
 
+    // Extract properties (works with both ChangedFile and plain object)
+    const resourceUri = fileItem.resourceUri;
+    const originalUri = fileItem.originalUri;
+    const status = fileItem.status;
+    const existsInRef = fileItem.existsInRef ?? true;
+
     // Find the repository for this URI
     for (const repository of gitAPI.repositories) {
-        if (fileItem.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
-            await openChange(gitAPI, repository, () => getCurrentRef(context, repository), fileItem.resourceUri, fileItem.originalUri, fileItem.status);
+        if (resourceUri.path.startsWith(repository.rootUri.path)) {
+            await openChange(gitAPI, repository, () => getCurrentRef(context, repository), resourceUri, originalUri, status, existsInRef);
             return;
         }
     }
 }
 
-async function openFileCommand(context: vscode.ExtensionContext, fileItem: ChangedFile) {
-    // For deleted files, use openChange to show the file from the ref
-    if (fileItem.status === ExtendedStatus.INDEX_DELETED ||
-        fileItem.status === ExtendedStatus.DELETED ||
-        fileItem.status === ExtendedStatus.DELETED_BY_THEM ||
-        fileItem.status === ExtendedStatus.DELETED_BY_US) {
+async function openFileCommand(context: vscode.ExtensionContext, fileItem: ChangedFile | { resourceUri: vscode.Uri; originalUri: vscode.Uri; status: ExtendedStatus; existsInRef?: boolean }) {
+    // Extract properties (works with both ChangedFile and plain object)
+    const resourceUri = fileItem.resourceUri;
+    const originalUri = fileItem.originalUri;
+    const status = fileItem.status;
+    const existsInRef = fileItem.existsInRef ?? true;
+
+    // Check if file exists on disk
+    let fileExists = true;
+    try {
+        await vscode.workspace.fs.stat(resourceUri);
+    } catch {
+        fileExists = false;
+    }
+
+    // For deleted files or restored files that don't exist (added after ref then deleted)
+    if (status === ExtendedStatus.INDEX_DELETED ||
+        status === ExtendedStatus.DELETED ||
+        status === ExtendedStatus.DELETED_BY_THEM ||
+        status === ExtendedStatus.DELETED_BY_US ||
+        (status === ExtendedStatus.RESTORED && !fileExists && !existsInRef)) {
         if (!gitAPI) {
             vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
             return;
@@ -493,13 +567,16 @@ async function openFileCommand(context: vscode.ExtensionContext, fileItem: Chang
 
         // Find the repository for this URI
         for (const repository of gitAPI.repositories) {
-            if (fileItem.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
-                await openChange(gitAPI, repository, () => getCurrentRef(context, repository), fileItem.resourceUri, fileItem.originalUri, fileItem.status);
+            if (resourceUri.path.startsWith(repository.rootUri.path)) {
+                const ref = existsInRef ? await getCurrentRef(context, repository) : 'HEAD';
+                // Open the file from ref or HEAD using git URI (shows lock icon for read-only)
+                const gitUri = gitAPI.toGitUri(resourceUri, ref);
+                await vscode.commands.executeCommand('vscode.open', gitUri);
                 return;
             }
         }
     } else {
-        await vscode.commands.executeCommand('vscode.open', fileItem.resourceUri);
+        await vscode.commands.executeCommand('vscode.open', resourceUri);
     }
 }
 
@@ -558,7 +635,7 @@ async function openDirectoryChangesCommand(context: vscode.ExtensionContext, dir
 
     // Find the repository for this directory
     for (const repository of gitAPI.repositories) {
-        if (directoryNode.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
+        if (directoryNode.resourceUri.path.startsWith(repository.rootUri.path)) {
             // Get all files in this directory from the tree data provider
             if (!currentTreeDataProvider) {
                 return;
@@ -645,7 +722,7 @@ async function restoreFileCommand(context: vscode.ExtensionContext, fileItem: Ch
 
     // Find the repository for this URI
     for (const repository of gitAPI.repositories) {
-        if (fileItem.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
+        if (fileItem.resourceUri.path.startsWith(repository.rootUri.path)) {
             // Show confirmation dialog
             const fileName = path.basename(fileItem.resourceUri.fsPath);
             const ref = await getCurrentRef(context, repository);
@@ -670,18 +747,67 @@ async function restoreFileCommand(context: vscode.ExtensionContext, fileItem: Ch
                         // For added files, delete them (they don't exist in ref)
                         await vscode.workspace.fs.delete(fileItem.resourceUri);
                     } else if (isRenamed) {
-                        // For renamed files: delete new file, restore old file
+                        // For renamed files: delete new file, restore old file at original location
                         await vscode.workspace.fs.delete(fileItem.resourceUri);
 
-                        // Get the relative path for the original file
-                        const originalRelativePath = path.relative(repository.rootUri.fsPath, fileItem.originalUri.fsPath);
-                        const content = await repository.show(ref, originalRelativePath);
-                        await vscode.workspace.fs.writeFile(fileItem.originalUri, Buffer.from(content, 'utf8'));
+                        // Get raw bytes from git without encoding interpretation
+                        const originalRelativePath = path.posix.relative(repository.rootUri.path, fileItem.originalUri.path);
+                        try {
+                            const { stdout } = await execFile('git', ['show', `${ref}:${originalRelativePath}`], {
+                                cwd: repository.rootUri.fsPath,
+                                encoding: 'buffer',
+                                maxBuffer: 100 * 1024 * 1024 // 100MB
+                            });
+                            await vscode.workspace.fs.writeFile(fileItem.originalUri, stdout as Buffer);
+                        } catch (error) {
+                            // Fallback to repository.show() if git command fails
+                            const content = await repository.show(ref, originalRelativePath);
+                            await vscode.workspace.fs.writeFile(fileItem.originalUri, Buffer.from(content, 'binary'));
+                        }
                     } else {
                         // For modified/deleted files, restore content from ref
-                        const relativePath = path.relative(repository.rootUri.fsPath, fileItem.resourceUri.fsPath);
-                        const content = await repository.show(ref, relativePath);
-                        await vscode.workspace.fs.writeFile(fileItem.resourceUri, Buffer.from(content, 'utf8'));
+                        const isDeleted = fileItem.status === ExtendedStatus.INDEX_DELETED ||
+                            fileItem.status === ExtendedStatus.DELETED ||
+                            fileItem.status === ExtendedStatus.DELETED_BY_THEM ||
+                            fileItem.status === ExtendedStatus.DELETED_BY_US;
+
+                        if (isDeleted) {
+                            // File is deleted - create it with content from ref
+                            const relativePath = path.posix.relative(repository.rootUri.path, fileItem.resourceUri.path);
+                            try {
+                                const { stdout } = await execFile('git', ['show', `${ref}:${relativePath}`], {
+                                    cwd: repository.rootUri.fsPath,
+                                    encoding: 'buffer',
+                                    maxBuffer: 100 * 1024 * 1024 // 100MB
+                                });
+                                await vscode.workspace.fs.writeFile(fileItem.resourceUri, stdout as Buffer);
+                            } catch (error) {
+                                // Fallback to repository.show() if git command fails
+                                const content = await repository.show(ref, relativePath);
+                                await vscode.workspace.fs.writeFile(fileItem.resourceUri, Buffer.from(content, 'binary'));
+                            }
+                        } else {
+                            // File exists - modify it using WorkspaceEdit to preserve detected encoding
+                            const contentUri = fileItem.resourceUri.with({
+                                scheme: QUICKDIFF_SCHEME,
+                                query: JSON.stringify({ uri: fileItem.resourceUri.toString(), ref })
+                            });
+                            const doc = await vscode.workspace.openTextDocument(contentUri);
+                            const content = doc.getText();
+
+                            // Replace entire file content using WorkspaceEdit (preserves encoding)
+                            const existingDoc = await vscode.workspace.openTextDocument(fileItem.resourceUri);
+                            const edit = new vscode.WorkspaceEdit();
+                            const fullRange = new vscode.Range(
+                                existingDoc.positionAt(0),
+                                existingDoc.positionAt(existingDoc.getText().length)
+                            );
+                            edit.replace(fileItem.resourceUri, fullRange, content);
+                            await vscode.workspace.applyEdit(edit);
+
+                            // Save the document to persist changes
+                            await existingDoc.save();
+                        }
                     }
 
                     // Refresh the tree view
@@ -717,7 +843,7 @@ async function restoreDirectoryCommand(context: vscode.ExtensionContext, directo
 
     // Find the repository for this directory
     for (const repository of gitAPI.repositories) {
-        if (directoryNode.resourceUri.fsPath.startsWith(repository.rootUri.fsPath)) {
+        if (directoryNode.resourceUri.path.startsWith(repository.rootUri.path)) {
             // Get all files in this directory from the tree data provider
             if (!currentTreeDataProvider) {
                 return;
@@ -777,18 +903,67 @@ async function restoreDirectoryCommand(context: vscode.ExtensionContext, directo
                             // For added files, delete them (they don't exist in ref)
                             await vscode.workspace.fs.delete(file.resourceUri);
                         } else if (isRenamed) {
-                            // For renamed files: delete new file, restore old file
+                            // For renamed files: delete new file, restore old file at original location
                             await vscode.workspace.fs.delete(file.resourceUri);
 
-                            // Get the relative path for the original file
-                            const originalRelativePath = path.relative(repository.rootUri.fsPath, file.originalUri.fsPath);
-                            const content = await repository.show(ref, originalRelativePath);
-                            await vscode.workspace.fs.writeFile(file.originalUri, Buffer.from(content, 'utf8'));
+                            // Get raw bytes from git without encoding interpretation
+                            const originalRelativePath = path.posix.relative(repository.rootUri.path, file.originalUri.path);
+                            try {
+                                const { stdout } = await execFile('git', ['show', `${ref}:${originalRelativePath}`], {
+                                    cwd: repository.rootUri.fsPath,
+                                    encoding: 'buffer',
+                                    maxBuffer: 100 * 1024 * 1024 // 100MB
+                                });
+                                await vscode.workspace.fs.writeFile(file.originalUri, stdout as Buffer);
+                            } catch (error) {
+                                // Fallback to repository.show() if git command fails
+                                const content = await repository.show(ref, originalRelativePath);
+                                await vscode.workspace.fs.writeFile(file.originalUri, Buffer.from(content, 'binary'));
+                            }
                         } else {
                             // For modified/deleted files, restore content from ref
-                            const relativePath = path.relative(repository.rootUri.fsPath, file.resourceUri.fsPath);
-                            const content = await repository.show(ref, relativePath);
-                            await vscode.workspace.fs.writeFile(file.resourceUri, Buffer.from(content, 'utf8'));
+                            const isDeleted = file.status === ExtendedStatus.INDEX_DELETED ||
+                                file.status === ExtendedStatus.DELETED ||
+                                file.status === ExtendedStatus.DELETED_BY_THEM ||
+                                file.status === ExtendedStatus.DELETED_BY_US;
+
+                            if (isDeleted) {
+                                // File is deleted - create it with content from ref
+                                const relativePath = path.posix.relative(repository.rootUri.path, file.resourceUri.path);
+                                try {
+                                    const { stdout } = await execFile('git', ['show', `${ref}:${relativePath}`], {
+                                        cwd: repository.rootUri.fsPath,
+                                        encoding: 'buffer',
+                                        maxBuffer: 100 * 1024 * 1024 // 100MB
+                                    });
+                                    await vscode.workspace.fs.writeFile(file.resourceUri, stdout as Buffer);
+                                } catch (error) {
+                                    // Fallback to repository.show() if git command fails
+                                    const content = await repository.show(ref, relativePath);
+                                    await vscode.workspace.fs.writeFile(file.resourceUri, Buffer.from(content, 'binary'));
+                                }
+                            } else {
+                                // File exists - modify it using WorkspaceEdit to preserve detected encoding
+                                const contentUri = file.resourceUri.with({
+                                    scheme: QUICKDIFF_SCHEME,
+                                    query: JSON.stringify({ uri: file.resourceUri.toString(), ref })
+                                });
+                                const doc = await vscode.workspace.openTextDocument(contentUri);
+                                const content = doc.getText();
+
+                                // Replace entire file content using WorkspaceEdit (preserves encoding)
+                                const existingDoc = await vscode.workspace.openTextDocument(file.resourceUri);
+                                const edit = new vscode.WorkspaceEdit();
+                                const fullRange = new vscode.Range(
+                                    existingDoc.positionAt(0),
+                                    existingDoc.positionAt(existingDoc.getText().length)
+                                );
+                                edit.replace(file.resourceUri, fullRange, content);
+                                await vscode.workspace.applyEdit(edit);
+
+                                // Save the document to persist changes
+                                await existingDoc.save();
+                            }
                         }
 
                         successCount++;

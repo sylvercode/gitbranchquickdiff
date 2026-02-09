@@ -335,6 +335,15 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
             const diffChangeUris = new Set<string>(diffChanges.map(c => c.uri.toString()));
             const diffWithWorkingTreeUris = new Set<string>(diffWithWorkingTree.map(c => c.uri.toString()));
 
+            // Track files that were added after ref (don't exist in ref)
+            const addedAfterRefUris = new Set<string>();
+            for (const change of diffChanges) {
+                if (change.status === Status.INDEX_ADDED ||
+                    change.status === Status.INTENT_TO_ADD) {
+                    addedAfterRefUris.add(change.uri.toString());
+                }
+            }
+
             // Track all git statuses separately (staged, unstaged, merge)
             const indexStatusMap = new Map<string, Status>();
             const workingTreeStatusMap = new Map<string, Status>();
@@ -355,9 +364,47 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
 
             // Add diff changes (between ref and HEAD) - check for restored files
             for (const change of diffChanges) {
-                // Check if this is a "restored" file - changed between ref and HEAD but working tree matches ref
+                // Check if file exists on disk
+                let fileExists = true;
+                try {
+                    await vscode.workspace.fs.stat(change.uri);
+                } catch {
+                    fileExists = false;
+                }
+
+                // Check if file was added after ref (doesn't exist in ref)
+                const wasAddedAfterRef = change.status === Status.INDEX_ADDED || change.status === Status.INTENT_TO_ADD;
+
+                // If file doesn't exist and is in worktree changes
+                if (!fileExists && workingTreeStatusMap.has(change.uri.toString())) {
+                    if (wasAddedAfterRef) {
+                        // File was added after ref, then deleted in worktree
+                        // This restores the state to match ref (not existing)
+                        // Keep it in diff as RESTORED
+                        allChangesMap.set(change.uri.toString(), {
+                            uri: change.uri,
+                            originalUri: change.originalUri,
+                            status: ExtendedStatus.RESTORED,
+                            indexStatus: indexStatusMap.get(change.uri.toString()),
+                            workingTreeStatus: workingTreeStatusMap.get(change.uri.toString()),
+                            mergeStatus: mergeStatusMap.get(change.uri.toString())
+                        });
+                        continue;
+                    } else {
+                        // File was in ref, modified in commits, deleted in worktree
+                        // Skip here, will be added from workingTreeChanges (without diff badge)
+                        diffChangeUris.delete(change.uri.toString());
+                        continue;
+                    }
+                }
+
+                // Determine status
                 let status: ExtendedStatus;
-                if (!diffWithWorkingTreeUris.has(change.uri.toString()) &&
+                if (!fileExists) {
+                    // File doesn't exist in worktree and not in workingTreeChanges
+                    // This means it was deleted in a commit between ref and HEAD
+                    status = ExtendedStatus.DELETED;
+                } else if (!diffWithWorkingTreeUris.has(change.uri.toString()) &&
                     change.status !== Status.INDEX_ADDED &&
                     change.status !== Status.INTENT_TO_ADD) {
                     // File is different between ref and HEAD, but working tree matches ref
@@ -380,9 +427,29 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
             // Add index changes (staged) - check for restored files
             for (const change of indexChanges) {
                 if (!allChangesMap.has(change.uri.toString())) {
-                    // Check if this is a "restored" file - in index but equal to ref in working tree
+                    // Check if file exists on disk
+                    let fileExists = true;
+                    try {
+                        await vscode.workspace.fs.stat(change.uri);
+                    } catch {
+                        fileExists = false;
+                    }
+
+                    // If file doesn't exist and is in worktree changes, skip it here
+                    // It will be added from workingTreeChanges instead (without the diff badge)
+                    if (!fileExists && workingTreeStatusMap.has(change.uri.toString())) {
+                        // Remove from diffChangeUris so it won't be marked as isInDiff
+                        diffChangeUris.delete(change.uri.toString());
+                        continue;
+                    }
+
+                    // Determine status
                     let status: ExtendedStatus;
-                    if (!diffWithWorkingTreeUris.has(change.uri.toString()) &&
+                    if (!fileExists) {
+                        // File doesn't exist in worktree and not in workingTreeChanges
+                        // This means it was deleted/staged for deletion
+                        status = ExtendedStatus.DELETED;
+                    } else if (!diffWithWorkingTreeUris.has(change.uri.toString()) &&
                         change.status !== Status.INDEX_ADDED &&
                         change.status !== Status.INTENT_TO_ADD) {
                         // File is in index but not in diff between ref and working tree, and it's not a new file
@@ -433,9 +500,20 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
             // Add merge changes
             for (const change of mergeChanges) {
                 if (!allChangesMap.has(change.uri.toString())) {
-                    // Check if this is a "restored" file - in merge changes but equal to ref
+                    // Check if file exists on disk
+                    let fileExists = true;
+                    try {
+                        await vscode.workspace.fs.stat(change.uri);
+                    } catch {
+                        fileExists = false;
+                    }
+
+                    // Determine status
                     let status: ExtendedStatus;
-                    if (!diffWithWorkingTreeUris.has(change.uri.toString()) &&
+                    if (!fileExists) {
+                        // File doesn't exist in worktree - treat as deleted regardless of merge status
+                        status = ExtendedStatus.DELETED;
+                    } else if (!diffWithWorkingTreeUris.has(change.uri.toString()) &&
                         change.status !== Status.ADDED_BY_US &&
                         change.status !== Status.ADDED_BY_THEM &&
                         change.status !== Status.BOTH_ADDED) {
@@ -481,10 +559,21 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                 }
                 const gitStatusText = gitStatuses.length > 0 ? gitStatuses.join(', ') : undefined;
 
-                // For color, prioritize RESTORED status, after git status (index/workingTree/merge), fallback to ref status
+                // For color, prioritize in order: RESTORED > Deleted > Added (from diff) > git status (index/workingTree/merge) > ref status
                 let colorStatus: ExtendedStatus;
                 if (change.status == ExtendedStatus.RESTORED) {
+                    // RESTORED takes highest priority (white/gray color)
                     colorStatus = ExtendedStatus.RESTORED;
+                } else if (change.status === ExtendedStatus.DELETED ||
+                    change.status === ExtendedStatus.INDEX_DELETED ||
+                    change.status === ExtendedStatus.DELETED_BY_THEM ||
+                    change.status === ExtendedStatus.DELETED_BY_US) {
+                    // Deletion takes second priority
+                    colorStatus = change.status;
+                } else if (addedAfterRefUris.has(change.uri.toString())) {
+                    // Added after ref takes third priority (doesn't exist in ref)
+                    // Use INDEX_ADDED color (green) for these files
+                    colorStatus = ExtendedStatus.INDEX_ADDED;
                 } else if (change.indexStatus !== undefined) {
                     colorStatus = toExtendedStatus(change.indexStatus);
                 } else if (change.workingTreeStatus !== undefined) {
@@ -498,6 +587,9 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
 
                 const isInDiff = diffChangeUris.has(change.uri.toString());
 
+                // Check if file doesn't exist in ref (was added after ref)
+                const existsInRef = !addedAfterRefUris.has(change.uri.toString());
+
                 return new ChangedFile(
                     fileName,
                     dirName !== '.' ? dirName : '',
@@ -509,6 +601,7 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                     color,
                     change.status,
                     isInDiff,
+                    existsInRef,
                     this._displayMode,
                     this.getDefaultAction()
                 );
@@ -775,6 +868,7 @@ export class ChangedFile extends vscode.TreeItem {
         public readonly color: vscode.ThemeColor | undefined,
         public readonly status: ExtendedStatus,
         public readonly isInDiff: boolean,
+        public readonly existsInRef: boolean,
         displayMode: DisplayMode = DisplayMode.List,
         defaultAction: string = 'openChanges'
     ) {
@@ -811,17 +905,28 @@ export class ChangedFile extends vscode.TreeItem {
         );
 
         // Set default click command based on parameter
+        // Pass minimal serializable data to avoid circular references
         if (defaultAction === 'openFile') {
             this.command = {
                 command: 'gitbranchquickdiff.openFile',
                 title: 'Open File',
-                arguments: [this]
+                arguments: [{
+                    resourceUri: this.resourceUri,
+                    originalUri: this.originalUri,
+                    status: this.status,
+                    existsInRef: this.existsInRef
+                }]
             };
         } else {
             this.command = {
                 command: 'gitbranchquickdiff.openChange',
                 title: 'Open Changes',
-                arguments: [this]
+                arguments: [{
+                    resourceUri: this.resourceUri,
+                    originalUri: this.originalUri,
+                    status: this.status,
+                    existsInRef: this.existsInRef
+                }]
             };
         }
 
@@ -830,12 +935,26 @@ export class ChangedFile extends vscode.TreeItem {
     }
 }
 
-export async function openChange(git: API, repository: Repository, getRef: () => Promise<string>, uri: vscode.Uri, originalUri: vscode.Uri, status: ExtendedStatus) {
+export async function openChange(git: API, repository: Repository, getRef: () => Promise<string>, uri: vscode.Uri, originalUri: vscode.Uri, status: ExtendedStatus, existsInRef: boolean = true) {
     const ref = await getRef();
 
+    // Check if file exists on disk
+    let fileExists = true;
+    try {
+        await vscode.workspace.fs.stat(uri);
+    } catch {
+        fileExists = false;
+    }
+
     if (status === ExtendedStatus.INDEX_DELETED || status === ExtendedStatus.DELETED || status === ExtendedStatus.DELETED_BY_THEM || status === ExtendedStatus.DELETED_BY_US) {
-        // For deleted files, show the file from the ref
-        const gitUri = git.toGitUri(uri, ref);
+        // For deleted files, show the file from HEAD if it doesn't exist in ref, otherwise from ref
+        const sourceRef = existsInRef ? ref : 'HEAD';
+        const gitUri = git.toGitUri(uri, sourceRef);
+        await vscode.commands.executeCommand('vscode.open', gitUri);
+    } else if (status === ExtendedStatus.RESTORED && !fileExists && !existsInRef) {
+        // File was added after ref, then deleted in worktree (restored to "not existing")
+        // Show it from HEAD where it exists
+        const gitUri = git.toGitUri(uri, 'HEAD');
         await vscode.commands.executeCommand('vscode.open', gitUri);
     } else if (status === ExtendedStatus.UNTRACKED || status === ExtendedStatus.INDEX_ADDED || status === ExtendedStatus.INTENT_TO_ADD) {
         // For untracked or newly added files, just open the file
