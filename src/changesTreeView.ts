@@ -946,16 +946,28 @@ export async function openChange(git: API, repository: Repository, getRef: () =>
         fileExists = false;
     }
 
+    // Check if file is in Git's state (working tree, index, or merge)
+    const isInGitState =
+        repository.state.workingTreeChanges.some(c => c.uri.toString() === uri.toString()) ||
+        repository.state.indexChanges.some(c => c.uri.toString() === uri.toString()) ||
+        repository.state.mergeChanges.some(c => c.uri.toString() === uri.toString());
+
     if (status === ExtendedStatus.INDEX_DELETED || status === ExtendedStatus.DELETED || status === ExtendedStatus.DELETED_BY_THEM || status === ExtendedStatus.DELETED_BY_US) {
-        // For deleted files, show the file from HEAD if it doesn't exist in ref, otherwise from ref
-        const sourceRef = existsInRef ? ref : 'HEAD';
-        const gitUri = git.toGitUri(uri, sourceRef);
-        await vscode.commands.executeCommand('vscode.open', gitUri);
+        if (isInGitState) {
+            // File is in Git's working tree/index/merge state
+            // Use Git extension's openChange command - it handles working tree deletions
+            await vscode.commands.executeCommand('git.openChange', uri);
+        } else {
+            // File was deleted between ref and HEAD (committed deletion, not in working tree)
+            // Just open the file content from ref (no "(deleted)" indication, but it's read-only)
+            const sourceRef = existsInRef ? ref : 'HEAD';
+            const gitUri = git.toGitUri(uri, sourceRef);
+            await vscode.commands.executeCommand('vscode.open', gitUri);
+        }
     } else if (status === ExtendedStatus.RESTORED && !fileExists && !existsInRef) {
         // File was added after ref, then deleted in worktree (restored to "not existing")
-        // Show it from HEAD where it exists
-        const gitUri = git.toGitUri(uri, 'HEAD');
-        await vscode.commands.executeCommand('vscode.open', gitUri);
+        // Use Git extension's openChange command like deleted files
+        await vscode.commands.executeCommand('git.openChange', uri);
     } else if (status === ExtendedStatus.UNTRACKED || status === ExtendedStatus.INDEX_ADDED || status === ExtendedStatus.INTENT_TO_ADD) {
         // For untracked or newly added files, just open the file
         await vscode.commands.executeCommand('vscode.open', uri);

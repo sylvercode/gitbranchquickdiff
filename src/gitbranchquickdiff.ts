@@ -568,10 +568,23 @@ async function openFileCommand(context: vscode.ExtensionContext, fileItem: Chang
         // Find the repository for this URI
         for (const repository of gitAPI.repositories) {
             if (resourceUri.path.startsWith(repository.rootUri.path)) {
-                const ref = existsInRef ? await getCurrentRef(context, repository) : 'HEAD';
-                // Open the file from ref or HEAD using git URI (shows lock icon for read-only)
-                const gitUri = gitAPI.toGitUri(resourceUri, ref);
-                await vscode.commands.executeCommand('vscode.open', gitUri);
+                // Check if file is in Git's state (working tree, index, or merge)
+                const isInGitState =
+                    repository.state.workingTreeChanges.some(c => c.uri.toString() === resourceUri.toString()) ||
+                    repository.state.indexChanges.some(c => c.uri.toString() === resourceUri.toString()) ||
+                    repository.state.mergeChanges.some(c => c.uri.toString() === resourceUri.toString());
+
+                if (isInGitState) {
+                    // File is in Git's working tree/index/merge state
+                    // Use Git extension's openChange command - it handles working tree deletions
+                    await vscode.commands.executeCommand('git.openChange', resourceUri);
+                } else {
+                    // File was deleted between ref and HEAD (committed deletion, not in working tree)
+                    // Just open the file content from ref (no "(deleted)" indication, but it's read-only)
+                    const ref = existsInRef ? await getCurrentRef(context, repository) : 'HEAD';
+                    const gitUri = gitAPI.toGitUri(resourceUri, ref);
+                    await vscode.commands.executeCommand('vscode.open', gitUri);
+                }
                 return;
             }
         }
