@@ -20,7 +20,9 @@ const WORKSPACE_STATE_KEY_REF = 'gitbranchquickdiff.ref';
 const WORKSPACE_STATE_KEY_ENABLED = 'gitbranchquickdiff.enabled';
 const WORKSPACE_STATE_KEY_DISPLAY_MODE = 'gitbranchquickdiff.displayMode';
 const WORKSPACE_STATE_KEY_DEFAULT_ACTION = 'gitbranchquickdiff.defaultAction';
+const WORKSPACE_STATE_KEY_RECENT_REFS = 'gitbranchquickdiff.recentRefs';
 const DEFAULT_REF = 'main';
+const MAX_RECENT_REFS = 10;
 const DEFAULT_ENABLED = true;
 const DEFAULT_DISPLAY_MODE = 'list';
 const DEFAULT_DEFAULT_ACTION = 'openChanges';
@@ -446,21 +448,73 @@ async function changeRef(context: vscode.ExtensionContext) {
     // This preserves variable syntax like ${git:lastTag}
     const currentValue = getRawRef(context);
 
-    const input = await vscode.window.showInputBox({
-        title: l10n('prompt.setRefTitle'),
-        prompt: l10n('prompt.setRefPlaceholder'),
-        value: currentValue,
+    // Load recent refs from workspace state
+    const recentRefs = context.workspaceState.get<string[]>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? [];
+
+    // Create quick pick with custom input support
+    const quickPick = vscode.window.createQuickPick();
+    quickPick.title = l10n('prompt.setRefTitle');
+    quickPick.placeholder = l10n('prompt.setRefPlaceholder');
+
+    // Build quick pick items from recent refs
+    const quickPickItems: vscode.QuickPickItem[] = recentRefs.map(ref => ({
+        label: ref,
+        description: ref === currentValue ? '(current)' : undefined
+    }));
+
+    quickPick.items = quickPickItems;
+
+    // Handle selection or custom input
+    const input = await new Promise<string | undefined>((resolve) => {
+        quickPick.onDidAccept(() => {
+            const selected = quickPick.selectedItems[0];
+            if (selected) {
+                // User selected an item from the list
+                resolve(selected.label);
+            } else {
+                // User typed a custom value
+                resolve(quickPick.value);
+            }
+            quickPick.hide();
+        });
+
+        quickPick.onDidHide(() => {
+            resolve(undefined);
+            quickPick.dispose();
+        });
+
+        quickPick.show();
     });
 
-    if (input !== undefined) {
+    if (input !== undefined && input.trim() !== '') {
         // Save to global workspace state
         await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, input);
+
+        // Update recent refs list
+        await updateRecentRefs(context, input);
 
         // Re-register all providers with the new ref
         if (reregisterAllProvidersFunc) {
             await reregisterAllProvidersFunc();
         }
     }
+}
+
+async function updateRecentRefs(context: vscode.ExtensionContext, ref: string) {
+    // Load current recent refs
+    const recentRefs = context.workspaceState.get<string[]>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? [];
+
+    // Remove ref if it already exists to avoid duplicates
+    const filtered = recentRefs.filter(r => r !== ref);
+
+    // Add to front of list (most recent first)
+    filtered.unshift(ref);
+
+    // Keep only MAX_RECENT_REFS
+    const updated = filtered.slice(0, MAX_RECENT_REFS);
+
+    // Save back to workspace state
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, updated);
 }
 
 async function resetRef(context: vscode.ExtensionContext) {
@@ -492,6 +546,7 @@ async function clearWorkspaceCache(context: vscode.ExtensionContext) {
     await context.workspaceState.update(WORKSPACE_STATE_KEY_ENABLED, undefined);
     await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
     await context.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, undefined);
 
     // Re-register all providers to use the default settings
     if (reregisterAllProvidersFunc) {
