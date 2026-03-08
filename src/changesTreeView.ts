@@ -1084,8 +1084,8 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
 
         // Listen to child provider's refresh events and forward them
         const listenerDisposable = provider.onDidChangeTreeData(() => {
-            if (this._repos.size === 1) {
-                // Single repo: refresh entire tree (no repo node level)
+            if (this._getTopLevelRepos().length === 1) {
+                // Single top-level repo: refresh entire tree (content shown at root)
                 this._onDidChangeTreeData.fire();
             } else if (this._submoduleDisplay === 'integrated' && this._childToParent.has(repo)) {
                 // In integrated mode, submodule content is shown in parent's tree

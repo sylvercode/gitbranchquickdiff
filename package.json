@@ -86,6 +86,11 @@
         "icon": "$(target)"
       },
       {
+        "command": "gitbranchquickdiff.changerefPick",
+        "title": "%command.changeref.title%",
+        "icon": "$(target)"
+      },
+      {
         "command": "gitbranchquickdiff.resetRef",
         "title": "%command.resetRef.title%"
       },
@@ -164,7 +169,7 @@
           "group": "navigation"
         },
         {
-          "command": "gitbranchquickdiff.changeref",
+          "command": "gitbranchquickdiff.changerefPick",
           "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.enabled",
           "group": "navigation"
         },

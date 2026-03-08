@@ -127,6 +127,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.activate`, () => enableExtention(context));
     registerCommand(context, `${EXTENTION_NAME}.deactivate`, () => disableExtention(context));
     registerCommand(context, `${EXTENTION_NAME}.changeref`, (repoNode?: RepositoryNode) => changeRef(context, repoNode));
+    registerCommand(context, `${EXTENTION_NAME}.changerefPick`, () => changeRef(context));
     registerCommand(context, `${EXTENTION_NAME}.resetRef`, (repoNode?: RepositoryNode) => resetRef(context, repoNode));
     registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, (repoNode?: RepositoryNode) => refreshChanges(repoNode));
     registerCommand(context, `${EXTENTION_NAME}.openChange`, (fileItem: ChangedFile) => openChangeCommand(context, fileItem));
