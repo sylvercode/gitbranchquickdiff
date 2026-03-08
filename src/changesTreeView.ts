@@ -191,19 +191,31 @@ export class MessageItem extends vscode.TreeItem {
 export class RepositoryNode extends vscode.TreeItem {
     public readonly provider: ChangesTreeDataProvider;
     public readonly repository: Repository;
+    private _isSubmodule: boolean;
 
     constructor(
         repository: Repository,
         provider: ChangesTreeDataProvider,
-        ref: string
+        ref: string,
+        isSubmodule: boolean = false
     ) {
         super(path.basename(repository.rootUri.fsPath), vscode.TreeItemCollapsibleState.Collapsed);
         this.repository = repository;
         this.provider = provider;
+        this._isSubmodule = isSubmodule;
         this.description = ref;
-        this.iconPath = new vscode.ThemeIcon('repo');
+        this.iconPath = new vscode.ThemeIcon(isSubmodule ? 'repo-submodule' : 'repo');
         this.contextValue = 'repository';
         this.resourceUri = repository.rootUri;
+    }
+
+    get isSubmodule(): boolean {
+        return this._isSubmodule;
+    }
+
+    set isSubmodule(value: boolean) {
+        this._isSubmodule = value;
+        this.iconPath = new vscode.ThemeIcon(value ? 'repo-submodule' : 'repo');
     }
 
     updateDescription(ref: string): void {
@@ -1032,6 +1044,16 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
     private _repos = new Map<Repository, { node: RepositoryNode; provider: ChangesTreeDataProvider; listenerDisposable: vscode.Disposable }>();
+    private _submoduleDisplay: 'standalone' | 'integrated';
+
+    // Maps parent repo → child (submodule) repos for integrated mode
+    private _parentToChildren = new Map<Repository, Repository[]>();
+    // Maps child repo → parent repo for integrated mode
+    private _childToParent = new Map<Repository, Repository>();
+
+    constructor(submoduleDisplay: 'standalone' | 'integrated' = 'standalone') {
+        this._submoduleDisplay = submoduleDisplay;
+    }
 
     addRepository(repo: Repository, provider: ChangesTreeDataProvider, ref: string): RepositoryNode {
         const node = new RepositoryNode(repo, provider, ref);
@@ -1048,6 +1070,7 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
         });
 
         this._repos.set(repo, { node, provider, listenerDisposable });
+        this._rebuildSubmoduleMap();
         this._onDidChangeTreeData.fire();
         return node;
     }
@@ -1057,8 +1080,60 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
         if (entry) {
             entry.listenerDisposable.dispose();
             this._repos.delete(repo);
+            this._rebuildSubmoduleMap();
             this._onDidChangeTreeData.fire();
         }
+    }
+
+    private _rebuildSubmoduleMap(): void {
+        this._parentToChildren.clear();
+        this._childToParent.clear();
+
+        const allRepos = [...this._repos.keys()];
+
+        for (const repo of allRepos) {
+            const submodules = repo.state.submodules;
+            if (!submodules || submodules.length === 0) {
+                continue;
+            }
+
+            for (const submodule of submodules) {
+                // Resolve the submodule absolute path relative to the parent repo
+                const submodulePath = path.resolve(repo.rootUri.fsPath, submodule.path);
+
+                // Find a registered repo matching this submodule path
+                const childRepo = allRepos.find(r => r.rootUri.fsPath === submodulePath);
+                if (childRepo && childRepo !== repo) {
+                    if (!this._parentToChildren.has(repo)) {
+                        this._parentToChildren.set(repo, []);
+                    }
+                    this._parentToChildren.get(repo)!.push(childRepo);
+                    this._childToParent.set(childRepo, repo);
+
+                    // Update submodule icon on the node
+                    const childEntry = this._repos.get(childRepo);
+                    if (childEntry) {
+                        childEntry.node.isSubmodule = true;
+                    }
+                }
+            }
+        }
+
+        // Reset non-submodule repos' icons
+        for (const [repo, entry] of this._repos) {
+            if (!this._childToParent.has(repo)) {
+                entry.node.isSubmodule = false;
+            }
+        }
+    }
+
+    /** Returns top-level repos (excludes submodules in integrated mode) */
+    private _getTopLevelRepos(): Repository[] {
+        if (this._submoduleDisplay === 'standalone') {
+            return [...this._repos.keys()];
+        }
+        // Integrated mode: exclude repos that are children of another repo
+        return [...this._repos.keys()].filter(r => !this._childToParent.has(r));
     }
 
     getProviderForUri(uri: vscode.Uri): ChangesTreeDataProvider | undefined {
@@ -1084,6 +1159,12 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
 
     get size(): number {
         return this._repos.size;
+    }
+
+    setSubmoduleDisplay(mode: 'standalone' | 'integrated'): void {
+        this._submoduleDisplay = mode;
+        this._rebuildSubmoduleMap();
+        this._onDidChangeTreeData.fire();
     }
 
     refresh(): void {
@@ -1114,17 +1195,29 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
             if (this._repos.size === 0) {
                 return [];
             }
-            if (this._repos.size === 1) {
-                // Single repo: delegate directly (skip repo node)
-                const entry = [...this._repos.values()][0];
+            const topLevel = this._getTopLevelRepos();
+            if (topLevel.length === 1 && this._repos.size === 1) {
+                // Single repo (no submodules at all): delegate directly (skip repo node)
+                const entry = this._repos.get(topLevel[0])!;
                 return entry.provider.getChildren();
             }
-            // Multiple repos: return repo nodes
-            return [...this._repos.values()].map(e => e.node);
+            // Multiple repos or has submodules: return repo nodes
+            return topLevel.map(r => this._repos.get(r)!.node);
         }
 
         if (element instanceof RepositoryNode) {
-            return element.provider.getChildren();
+            const children = await element.provider.getChildren();
+            // In integrated mode, append submodule RepositoryNodes as children
+            if (this._submoduleDisplay === 'integrated') {
+                const subRepos = this._parentToChildren.get(element.repository);
+                if (subRepos && subRepos.length > 0) {
+                    const subNodes = subRepos
+                        .map(r => this._repos.get(r)?.node)
+                        .filter((n): n is RepositoryNode => n !== undefined);
+                    return [...children, ...subNodes];
+                }
+            }
+            return children;
         }
 
         if (element instanceof DirectoryNode) {

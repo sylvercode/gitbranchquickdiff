@@ -52,6 +52,15 @@
           "default": 1,
           "minimum": 0,
           "description": "%configuration.tagCacheTTL.description%"
+        },
+        "gitbranchquickdiff.submoduleDisplay": {
+          "type": "string",
+          "enum": [
+            "standalone",
+            "integrated"
+          ],
+          "default": "standalone",
+          "description": "%configuration.submoduleDisplay.description%"
         }
       }
     },
@@ -141,6 +150,10 @@
       {
         "command": "gitbranchquickdiff.clearWorkspaceCache",
         "title": "Clear GitBranchQuickDiff Workspace Cache"
+      },
+      {
+        "command": "gitbranchquickdiff.toggleSubmoduleDisplay",
+        "title": "%command.toggleSubmoduleDisplay.title%"
       }
     ],
     "menus": {
@@ -184,6 +197,11 @@
           "command": "gitbranchquickdiff.resetRef",
           "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.enabled",
           "group": "4_resetref"
+        },
+        {
+          "command": "gitbranchquickdiff.toggleSubmoduleDisplay",
+          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.enabled",
+          "group": "2_submodule"
         },
         {
           "command": "gitbranchquickdiff.activate",

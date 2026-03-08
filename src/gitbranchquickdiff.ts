@@ -16,17 +16,20 @@ export const EXTENTION_NAME = 'gitbranchquickdiff';
 const REF_CONFIG_NAME = 'ref';
 const DISPLAY_MODE_CONFIG_NAME = 'displayMode';
 const DEFAULT_ACTION_CONFIG_NAME = 'defaultAction';
+const SUBMODULE_DISPLAY_CONFIG_NAME = 'submoduleDisplay';
 const WORKSPACE_STATE_KEY_REF = 'gitbranchquickdiff.ref'; // Legacy key for migration
 const WORKSPACE_STATE_KEY_REFS = 'gitbranchquickdiff.refs'; // Per-repo ref map: Record<string, string>
 const WORKSPACE_STATE_KEY_ENABLED = 'gitbranchquickdiff.enabled';
 const WORKSPACE_STATE_KEY_DISPLAY_MODE = 'gitbranchquickdiff.displayMode';
 const WORKSPACE_STATE_KEY_DEFAULT_ACTION = 'gitbranchquickdiff.defaultAction';
+const WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY = 'gitbranchquickdiff.submoduleDisplay';
 const WORKSPACE_STATE_KEY_RECENT_REFS = 'gitbranchquickdiff.recentRefs';
 const DEFAULT_REF = 'main';
 const MAX_RECENT_REFS = 10;
 const DEFAULT_ENABLED = true;
 const DEFAULT_DISPLAY_MODE = 'list';
 const DEFAULT_DEFAULT_ACTION = 'openChanges';
+const DEFAULT_SUBMODULE_DISPLAY = 'standalone';
 
 // Global helper functions to access workspace state
 function getRawRef(context: vscode.ExtensionContext, repository: git.Repository): string {
@@ -79,6 +82,19 @@ function getCurrentDefaultAction(context: vscode.ExtensionContext): string {
         .get<string>(DEFAULT_ACTION_CONFIG_NAME) ?? DEFAULT_DEFAULT_ACTION;
 }
 
+function getCurrentSubmoduleDisplay(context: vscode.ExtensionContext): string {
+    // Try global workspace state first
+    const cached = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY);
+
+    if (cached !== undefined) {
+        return cached;
+    }
+
+    // Fall back to setting
+    return vscode.workspace.getConfiguration(EXTENTION_NAME)
+        .get<string>(SUBMODULE_DISPLAY_CONFIG_NAME) ?? DEFAULT_SUBMODULE_DISPLAY;
+}
+
 async function migrateWorkspaceState(context: vscode.ExtensionContext, repositories: git.Repository[]) {
     // Migrate ref: from single string to per-repo map
     const oldRef = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_REF);
@@ -124,6 +140,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.restoreFile`, (fileItem: ChangedFile) => restoreFileCommand(context, fileItem));
     registerCommand(context, `${EXTENTION_NAME}.restoreDirectory`, (directoryNode: any) => restoreDirectoryCommand(context, directoryNode));
     registerCommand(context, `${EXTENTION_NAME}.clearWorkspaceCache`, () => clearWorkspaceCache(context));
+    registerCommand(context, `${EXTENTION_NAME}.toggleSubmoduleDisplay`, () => toggleSubmoduleDisplay(context));
 }
 
 async function registerToGitExtention(context: vscode.ExtensionContext) {
@@ -165,7 +182,8 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     const providers = new Map<git.Repository, { provider: CustomQuickDiffProvider; disposable: vscode.Disposable }>();
 
     // Create MultiRepoTreeDataProvider and tree view (once for all repos)
-    const multiRepoProvider = new MultiRepoTreeDataProvider();
+    const submoduleDisplay = getCurrentSubmoduleDisplay(context);
+    const multiRepoProvider = new MultiRepoTreeDataProvider(submoduleDisplay as 'standalone' | 'integrated');
     currentMultiRepoProvider = multiRepoProvider;
 
     const treeView = vscode.window.createTreeView(`${EXTENTION_NAME}.changes`, {
@@ -305,6 +323,7 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', displayMode);
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', enabled);
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', defaultAction);
+    vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.submoduleDisplay', getCurrentSubmoduleDisplay(context));
 
     // Listen for new repositories
     context.subscriptions.push(git.onDidOpenRepository(async (repository) => {
@@ -317,7 +336,8 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
         if (e.affectsConfiguration(`${EXTENTION_NAME}.${REF_CONFIG_NAME}`) ||
             e.affectsConfiguration(`${EXTENTION_NAME}.${DISPLAY_MODE_CONFIG_NAME}`) ||
-            e.affectsConfiguration(`${EXTENTION_NAME}.${DEFAULT_ACTION_CONFIG_NAME}`)) {
+            e.affectsConfiguration(`${EXTENTION_NAME}.${DEFAULT_ACTION_CONFIG_NAME}`) ||
+            e.affectsConfiguration(`${EXTENTION_NAME}.${SUBMODULE_DISPLAY_CONFIG_NAME}`)) {
             console.log(`[GitBranchQuickDiff] Configuration changed`);
 
             // Clear workspace state overrides for changed configurations
@@ -329,6 +349,9 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             }
             if (e.affectsConfiguration(`${EXTENTION_NAME}.${DEFAULT_ACTION_CONFIG_NAME}`)) {
                 await context.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
+            }
+            if (e.affectsConfiguration(`${EXTENTION_NAME}.${SUBMODULE_DISPLAY_CONFIG_NAME}`)) {
+                await context.workspaceState.update(WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY, undefined);
             }
 
             // Re-register all QuickDiffProviders
@@ -345,6 +368,11 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', cfgDisplayMode);
             vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', isEnabled);
             vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', cfgDefaultAction);
+
+            // Update submodule display mode
+            const cfgSubmoduleDisplay = getCurrentSubmoduleDisplay(context);
+            vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.submoduleDisplay', cfgSubmoduleDisplay);
+            multiRepoProvider.setSubmoduleDisplay(cfgSubmoduleDisplay as 'standalone' | 'integrated');
 
             // Update repo node descriptions
             for (const repo of multiRepoProvider.repositories) {
@@ -643,6 +671,7 @@ async function clearWorkspaceCache(context: vscode.ExtensionContext) {
     await context.workspaceState.update(WORKSPACE_STATE_KEY_ENABLED, undefined);
     await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
     await context.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY, undefined);
     await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, undefined);
 
     // Re-register all providers to use the default settings
@@ -651,6 +680,18 @@ async function clearWorkspaceCache(context: vscode.ExtensionContext) {
     }
 
     vscode.window.showInformationMessage('GitBranchQuickDiff workspace cache cleared. All settings reset to defaults.');
+}
+
+async function toggleSubmoduleDisplay(context: vscode.ExtensionContext) {
+    const current = getCurrentSubmoduleDisplay(context);
+    const newMode = current === 'standalone' ? 'integrated' : 'standalone';
+
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY, newMode);
+    vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.submoduleDisplay', newMode);
+
+    if (currentMultiRepoProvider) {
+        currentMultiRepoProvider.setSubmoduleDisplay(newMode);
+    }
 }
 
 // Global references to store current tree view and repositories for command access
