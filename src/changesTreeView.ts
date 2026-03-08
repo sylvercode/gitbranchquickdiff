@@ -273,6 +273,10 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
         return this._decorationProvider;
     }
 
+    get defaultAction(): string {
+        return this.getDefaultAction();
+    }
+
     refresh(): void {
         // Performance: Debounce rapid refreshes (e.g., from multiple file changes)
         if (this._refreshTimeout) {
@@ -292,26 +296,11 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
         return element;
     }
 
-    async getChildren(element?: ChangedFile | DirectoryNode | MessageItem): Promise<(ChangedFile | DirectoryNode | MessageItem)[]> {
-        // MessageItems and ChangedFiles have no children
-        if (element instanceof ChangedFile || element instanceof MessageItem) {
-            return [];
-        }
-
-        // Check if the extension is enabled
-        const isEnabled = this.getEnabled();
-        if (!isEnabled) {
-            // Clear all decorations when disabled
-            this._decorationProvider.setChanges([]);
-            return [new MessageItem(l10n('message.quickDiffDeactivated'), {
-                command: 'gitbranchquickdiff.activate',
-                title: l10n('command.activate')
-            })];
-        }
-
+    /** Returns flat list of ChangedFile objects for this repo. Returns null on error or empty ref. */
+    async getChangedFiles(): Promise<ChangedFile[] | null> {
         const ref = await this.getRef();
         if (!ref) {
-            return [];
+            return null;
         }
 
         try {
@@ -655,141 +644,176 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                     }))
             );
 
-            // Return based on display mode
-            if (this._displayMode === DisplayMode.List) {
-                this._currentDirectoryNodes = [];
-                // Sort by full path in list mode, with root files first
-                changedFiles.sort((a, b) => {
-                    // Root files (no directory) come before files in directories
-                    if (!a.directory && b.directory) {
-                        return -1;
-                    }
-                    if (a.directory && !b.directory) {
-                        return 1;
-                    }
-                    // Both are root files or both are in directories - sort by full path
-                    const pathA = a.directory ? `${a.directory}${path.sep}${a.fileName}` : a.fileName;
-                    const pathB = b.directory ? `${b.directory}${path.sep}${b.fileName}` : b.fileName;
-                    return pathA.localeCompare(pathB);
-                });
-                return changedFiles;
-            } else {
-                // Tree mode: build directory structure
-                const treeNodes = this.buildTree(changedFiles, element);
-                // Store top-level directory nodes
-                if (!element) {
-                    this._currentDirectoryNodes = treeNodes.filter(node => node instanceof DirectoryNode) as DirectoryNode[];
-                }
-                return treeNodes;
-            }
+            return changedFiles;
         } catch (error) {
             console.error('Failed to get changes:', error);
-            // Show message that ref was not found
             this._decorationProvider.setChanges([]);
-            return [new MessageItem(l10n('message.refNotFound', ref), {
-                command: 'gitbranchquickdiff.changeref',
-                title: l10n('command.changeRef')
+            return null;
+        }
+    }
+
+    async getChildren(element?: ChangedFile | DirectoryNode | MessageItem): Promise<(ChangedFile | DirectoryNode | MessageItem)[]> {
+        // MessageItems and ChangedFiles have no children
+        if (element instanceof ChangedFile || element instanceof MessageItem) {
+            return [];
+        }
+
+        // Check if the extension is enabled
+        const isEnabled = this.getEnabled();
+        if (!isEnabled) {
+            // Clear all decorations when disabled
+            this._decorationProvider.setChanges([]);
+            return [new MessageItem(l10n('message.quickDiffDeactivated'), {
+                command: 'gitbranchquickdiff.activate',
+                title: l10n('command.activate')
             })];
+        }
+
+        const changedFiles = await this.getChangedFiles();
+        if (!changedFiles) {
+            // Error or empty ref
+            const ref = await this.getRef();
+            this._decorationProvider.setChanges([]);
+            if (ref) {
+                return [new MessageItem(l10n('message.refNotFound', ref), {
+                    command: 'gitbranchquickdiff.changeref',
+                    title: l10n('command.changeRef')
+                })];
+            }
+            return [];
+        }
+
+        // Return based on display mode
+        if (this._displayMode === DisplayMode.List) {
+            this._currentDirectoryNodes = [];
+            // Sort by full path in list mode, with root files first
+            changedFiles.sort((a, b) => {
+                // Root files (no directory) come before files in directories
+                if (!a.directory && b.directory) {
+                    return -1;
+                }
+                if (a.directory && !b.directory) {
+                    return 1;
+                }
+                // Both are root files or both are in directories - sort by full path
+                const pathA = a.directory ? `${a.directory}${path.sep}${a.fileName}` : a.fileName;
+                const pathB = b.directory ? `${b.directory}${path.sep}${b.fileName}` : b.fileName;
+                return pathA.localeCompare(pathB);
+            });
+            return changedFiles;
+        } else {
+            // Tree mode: build directory structure
+            const treeNodes = this.buildTree(changedFiles, element);
+            // Store top-level directory nodes
+            if (!element) {
+                this._currentDirectoryNodes = treeNodes.filter(node => node instanceof DirectoryNode) as DirectoryNode[];
+            }
+            return treeNodes;
         }
     }
 
     private buildTree(files: ChangedFile[], parentNode?: DirectoryNode): (DirectoryNode | ChangedFile)[] {
-        const parentPath = parentNode?.fullPath ?? '';
-        const directoryMap = new Map<string, ChangedFile[]>();
-        const rootFiles: ChangedFile[] = [];
-
-        // Group files by their immediate parent directory relative to parentNode
-        for (const file of files) {
-            const relativePath = file.directory;
-
-            // Skip files not in this parent directory
-            if (parentPath) {
-                if (!relativePath.startsWith(parentPath)) {
-                    continue;
-                }
-            }
-
-            // Get the remaining path after the parent
-            const remainingPath = parentPath ? relativePath.substring(parentPath.length).replace(/^[\\\/]+/, '') : relativePath;
-
-            if (!remainingPath) {
-                // File is in the current directory
-                rootFiles.push(file);
-            } else {
-                // File is in a subdirectory
-                const parts = remainingPath.split(/[\\\/]/);
-                const immediateDir = parts[0];
-                const fullDirPath = parentPath ? `${parentPath}${path.sep}${immediateDir}` : immediateDir;
-
-                if (!directoryMap.has(fullDirPath)) {
-                    directoryMap.set(fullDirPath, []);
-                }
-                directoryMap.get(fullDirPath)!.push(file);
-            }
-        }
-
-        // Check if explorer.compactFolders is enabled
-        const compactFolders = vscode.workspace.getConfiguration('explorer').get<boolean>('compactFolders', true);
-
-        // Create directory nodes
-        const directoryNodes: DirectoryNode[] = [];
-        for (const [fullPath, filesInDir] of directoryMap.entries()) {
-            let displayPath = fullPath;
-            let compactedFiles = filesInDir;
-
-            // If compactFolders is enabled, check if we can compact this directory
-            if (compactFolders) {
-                let currentPath = fullPath;
-                let currentFiles = filesInDir;
-
-                // Keep compacting while the directory has no files at its level and only one subdirectory
-                while (true) {
-                    // Count subdirectories at this level
-                    const subdirs = new Set<string>();
-                    let filesAtThisLevel = 0;
-
-                    for (const file of currentFiles) {
-                        const relativePath = file.directory;
-                        if (!relativePath.startsWith(currentPath)) {
-                            continue;
-                        }
-
-                        const remainingPath = relativePath.substring(currentPath.length).replace(/^[\\\/]+/, '');
-                        if (!remainingPath) {
-                            // File is directly in this directory
-                            filesAtThisLevel++;
-                        } else {
-                            // File is in a subdirectory
-                            const parts = remainingPath.split(/[\\\/]/);
-                            subdirs.add(parts[0]);
-                        }
-                    }
-
-                    // Can only compact if no files at this level and exactly one subdirectory
-                    if (filesAtThisLevel === 0 && subdirs.size === 1) {
-                        const subdir = Array.from(subdirs)[0];
-                        currentPath = `${currentPath}${path.sep}${subdir}`;
-                        displayPath = currentPath;
-                        // currentFiles stays the same - all files are still in subdirectories
-                    } else {
-                        break;
-                    }
-                }
-            }
-
-            const dirName = parentPath ? displayPath.substring(parentPath.length).replace(/^[\\\/]+/, '') : displayPath;
-            directoryNodes.push(new DirectoryNode(dirName, displayPath, compactedFiles, this.repository));
-        }
-
-        // Sort directories alphabetically by label
-        directoryNodes.sort((a, b) => a.label.localeCompare(b.label));
-
-        // Sort files alphabetically by name
-        rootFiles.sort((a, b) => a.fileName.localeCompare(b.fileName));
-
-        // Return directories first, then files (applies to both root and sub items)
-        return [...directoryNodes, ...rootFiles];
+        return buildTree(files, this.repository.rootUri.fsPath, parentNode);
     }
+}
+
+// Module-level buildTree function (reusable by MultiRepoTreeDataProvider)
+function buildTree(files: ChangedFile[], rootFsPath: string, parentNode?: DirectoryNode): (DirectoryNode | ChangedFile)[] {
+    const parentPath = parentNode?.fullPath ?? '';
+    const directoryMap = new Map<string, ChangedFile[]>();
+    const rootFiles: ChangedFile[] = [];
+
+    // Group files by their immediate parent directory relative to parentNode
+    for (const file of files) {
+        const relativePath = file.directory;
+
+        // Skip files not in this parent directory
+        if (parentPath) {
+            if (!relativePath.startsWith(parentPath)) {
+                continue;
+            }
+        }
+
+        // Get the remaining path after the parent
+        const remainingPath = parentPath ? relativePath.substring(parentPath.length).replace(/^[\\\/]+/, '') : relativePath;
+
+        if (!remainingPath) {
+            // File is in the current directory
+            rootFiles.push(file);
+        } else {
+            // File is in a subdirectory
+            const parts = remainingPath.split(/[\\\/]/);
+            const immediateDir = parts[0];
+            const fullDirPath = parentPath ? `${parentPath}${path.sep}${immediateDir}` : immediateDir;
+
+            if (!directoryMap.has(fullDirPath)) {
+                directoryMap.set(fullDirPath, []);
+            }
+            directoryMap.get(fullDirPath)!.push(file);
+        }
+    }
+
+    // Check if explorer.compactFolders is enabled
+    const compactFolders = vscode.workspace.getConfiguration('explorer').get<boolean>('compactFolders', true);
+
+    // Create directory nodes
+    const directoryNodes: DirectoryNode[] = [];
+    for (const [fullPath, filesInDir] of directoryMap.entries()) {
+        let displayPath = fullPath;
+        let compactedFiles = filesInDir;
+
+        // If compactFolders is enabled, check if we can compact this directory
+        if (compactFolders) {
+            let currentPath = fullPath;
+            let currentFiles = filesInDir;
+
+            // Keep compacting while the directory has no files at its level and only one subdirectory
+            while (true) {
+                // Count subdirectories at this level
+                const subdirs = new Set<string>();
+                let filesAtThisLevel = 0;
+
+                for (const file of currentFiles) {
+                    const relativePath = file.directory;
+                    if (!relativePath.startsWith(currentPath)) {
+                        continue;
+                    }
+
+                    const remainingPath = relativePath.substring(currentPath.length).replace(/^[\\\/]+/, '');
+                    if (!remainingPath) {
+                        // File is directly in this directory
+                        filesAtThisLevel++;
+                    } else {
+                        // File is in a subdirectory
+                        const parts = remainingPath.split(/[\\\/]/);
+                        subdirs.add(parts[0]);
+                    }
+                }
+
+                // Can only compact if no files at this level and exactly one subdirectory
+                if (filesAtThisLevel === 0 && subdirs.size === 1) {
+                    const subdir = Array.from(subdirs)[0];
+                    currentPath = `${currentPath}${path.sep}${subdir}`;
+                    displayPath = currentPath;
+                    // currentFiles stays the same - all files are still in subdirectories
+                } else {
+                    break;
+                }
+            }
+        }
+
+        const dirName = parentPath ? displayPath.substring(parentPath.length).replace(/^[\\\/]+/, '') : displayPath;
+        directoryNodes.push(new DirectoryNode(dirName, displayPath, compactedFiles, rootFsPath));
+    }
+
+    // Sort directories alphabetically by label
+    directoryNodes.sort((a, b) => a.label.localeCompare(b.label));
+
+    // Sort files alphabetically by name
+    rootFiles.sort((a, b) => a.fileName.localeCompare(b.fileName));
+
+    // Return directories first, then files (applies to both root and sub items)
+    return [...directoryNodes, ...rootFiles];
 }
 
 export class DirectoryNode extends vscode.TreeItem {
@@ -797,7 +821,7 @@ export class DirectoryNode extends vscode.TreeItem {
         public readonly label: string,
         public readonly fullPath: string,
         private readonly filesInDirectory: ChangedFile[],
-        private readonly repository: Repository
+        rootFsPath: string
     ) {
         super(label, vscode.TreeItemCollapsibleState.Collapsed);
 
@@ -805,7 +829,7 @@ export class DirectoryNode extends vscode.TreeItem {
         this.iconPath = new vscode.ThemeIcon('folder');
 
         // Set resource URI for the directory
-        this.resourceUri = vscode.Uri.file(path.join(repository.rootUri.fsPath, fullPath));
+        this.resourceUri = vscode.Uri.file(path.join(rootFsPath, fullPath));
 
         // Count of changed files in this directory
         const fileCount = filesInDirectory.length;
@@ -1063,6 +1087,15 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
             if (this._repos.size === 1) {
                 // Single repo: refresh entire tree (no repo node level)
                 this._onDidChangeTreeData.fire();
+            } else if (this._submoduleDisplay === 'integrated' && this._childToParent.has(repo)) {
+                // In integrated mode, submodule content is shown in parent's tree
+                const parentRepo = this._childToParent.get(repo)!;
+                const parentEntry = this._repos.get(parentRepo);
+                if (parentEntry) {
+                    this._onDidChangeTreeData.fire(parentEntry.node);
+                } else {
+                    this._onDidChangeTreeData.fire(node);
+                }
             } else {
                 // Multi repo: refresh only this repo's subtree
                 this._onDidChangeTreeData.fire(node);
@@ -1140,12 +1173,17 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
     }
 
     getProviderForUri(uri: vscode.Uri): ChangesTreeDataProvider | undefined {
+        // Use longest-prefix matching to correctly find submodule providers
+        let bestMatch: ChangesTreeDataProvider | undefined;
+        let bestLength = 0;
         for (const [repo, entry] of this._repos) {
-            if (uri.fsPath.startsWith(repo.rootUri.fsPath)) {
-                return entry.provider;
+            const rootPath = repo.rootUri.fsPath;
+            if (uri.fsPath.startsWith(rootPath) && rootPath.length > bestLength) {
+                bestMatch = entry.provider;
+                bestLength = rootPath.length;
             }
         }
-        return undefined;
+        return bestMatch;
     }
 
     getProviderForRepo(repo: Repository): ChangesTreeDataProvider | undefined {
@@ -1193,6 +1231,98 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
         return element;
     }
 
+    /** Get submodule RepositoryNodes that should appear at a given directory level within a parent repo */
+    private _getSubmodulesAtLevel(parentRepo: Repository, directoryPath: string): RepositoryNode[] {
+        if (this._submoduleDisplay !== 'integrated') {
+            return [];
+        }
+        const subRepos = this._parentToChildren.get(parentRepo);
+        if (!subRepos || subRepos.length === 0) {
+            return [];
+        }
+
+        const nodes: RepositoryNode[] = [];
+        for (const subRepo of subRepos) {
+            const relPath = path.relative(parentRepo.rootUri.fsPath, subRepo.rootUri.fsPath);
+
+            let remaining: string;
+            if (directoryPath) {
+                // Check if submodule path starts with the current directory
+                if (!relPath.startsWith(directoryPath + path.sep) && !relPath.startsWith(directoryPath + '/')) {
+                    continue;
+                }
+                remaining = relPath.substring(directoryPath.length + 1);
+            } else {
+                remaining = relPath;
+            }
+
+            // Submodule appears at this level if remaining has no separator
+            if (!remaining.includes(path.sep) && !remaining.includes('/')) {
+                const entry = this._repos.get(subRepo);
+                if (entry) {
+                    nodes.push(entry.node);
+                }
+            }
+        }
+
+        nodes.sort((a, b) => {
+            const labelA = typeof a.label === 'string' ? a.label : '';
+            const labelB = typeof b.label === 'string' ? b.label : '';
+            return labelA.localeCompare(labelB);
+        });
+        return nodes;
+    }
+
+    /** Find the parent repo that owns a DirectoryNode in integrated mode */
+    private _findParentRepoForDirectory(uri: vscode.Uri): Repository | undefined {
+        if (this._submoduleDisplay !== 'integrated') {
+            return undefined;
+        }
+        for (const [repo] of this._repos) {
+            // Only consider top-level repos that have submodules
+            if (!this._childToParent.has(repo) && this._parentToChildren.has(repo) &&
+                uri.fsPath.startsWith(repo.rootUri.fsPath)) {
+                // Make sure this URI is not inside a submodule
+                const subRepos = this._parentToChildren.get(repo) || [];
+                const isInsideSubmodule = subRepos.some(sub =>
+                    uri.fsPath.startsWith(sub.rootUri.fsPath + path.sep) ||
+                    uri.fsPath === sub.rootUri.fsPath
+                );
+                if (!isInsideSubmodule) {
+                    return repo;
+                }
+            }
+        }
+        return undefined;
+    }
+
+    /** Merge children with submodule RepositoryNodes, sorting directories/repos together before files */
+    private _mergeWithSubmodules(
+        children: (ChangedFile | DirectoryNode | MessageItem)[],
+        subNodes: RepositoryNode[]
+    ): (RepositoryNode | ChangedFile | DirectoryNode | MessageItem)[] {
+        const dirLike: (DirectoryNode | RepositoryNode)[] = [];
+        const rest: (ChangedFile | MessageItem)[] = [];
+
+        for (const child of children) {
+            if (child instanceof DirectoryNode) {
+                dirLike.push(child);
+            } else {
+                rest.push(child);
+            }
+        }
+
+        dirLike.push(...subNodes);
+
+        dirLike.sort((a, b) => {
+            const labelA = typeof a.label === 'string' ? a.label : '';
+            const labelB = typeof b.label === 'string' ? b.label : '';
+            return labelA.localeCompare(labelB);
+        });
+
+        return [...dirLike, ...rest];
+    }
+
     async getChildren(element?: RepositoryNode | ChangedFile | DirectoryNode | MessageItem): Promise<(RepositoryNode | ChangedFile | DirectoryNode | MessageItem)[]> {
         if (!element) {
             if (this._repos.size === 0) {
@@ -1210,22 +1340,50 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
 
         if (element instanceof RepositoryNode) {
             const children = await element.provider.getChildren();
-            // In integrated mode, append submodule RepositoryNodes as children
+            // In integrated mode, insert submodule RepositoryNodes
             if (this._submoduleDisplay === 'integrated') {
                 const subRepos = this._parentToChildren.get(element.repository);
                 if (subRepos && subRepos.length > 0) {
-                    const subNodes = subRepos
-                        .map(r => this._repos.get(r)?.node)
-                        .filter((n): n is RepositoryNode => n !== undefined);
-                    return [...children, ...subNodes];
+                    if (element.provider.displayMode === DisplayMode.List) {
+                        // List mode: all submodules appear at root of parent's children
+                        const allSubNodes = subRepos
+                            .map(r => this._repos.get(r)?.node)
+                            .filter((n): n is RepositoryNode => n !== undefined)
+                            .sort((a, b) => {
+                                const labelA = typeof a.label === 'string' ? a.label : '';
+                                const labelB = typeof b.label === 'string' ? b.label : '';
+                                return labelA.localeCompare(labelB);
+                            });
+                        if (allSubNodes.length > 0) {
+                            return [...children, ...allSubNodes];
+                        }
+                    } else {
+                        // Tree mode: insert submodules at their directory position
+                        const subNodes = this._getSubmodulesAtLevel(element.repository, '');
+                        if (subNodes.length > 0) {
+                            return this._mergeWithSubmodules(children, subNodes);
+                        }
+                    }
                 }
             }
             return children;
         }
 
         if (element instanceof DirectoryNode) {
-            // Find the provider for this directory by URI
             if (element.resourceUri) {
+                // Check if this directory is under an integrated parent that has submodules
+                const parentRepo = this._findParentRepoForDirectory(element.resourceUri);
+                if (parentRepo) {
+                    const provider = this.getProviderForUri(element.resourceUri);
+                    const children = provider ? await provider.getChildren(element) : [];
+                    const dirRelPath = path.relative(parentRepo.rootUri.fsPath, element.resourceUri.fsPath);
+                    const subNodes = this._getSubmodulesAtLevel(parentRepo, dirRelPath);
+                    if (subNodes.length > 0) {
+                        return this._mergeWithSubmodules(children, subNodes);
+                    }
+                    return children;
+                }
+                // Normal handling: find the provider for this directory by URI
                 const provider = this.getProviderForUri(element.resourceUri);
                 if (provider) {
                     return provider.getChildren(element);
