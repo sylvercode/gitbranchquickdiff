@@ -299,9 +299,9 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
         const decorationDisposable = vscode.window.registerFileDecorationProvider(treeDataProvider.decorationProvider);
         context.subscriptions.push(decorationDisposable);
 
-        // Add to multi-repo provider
+        // Add to multi-repo provider (pass decoration disposable for lifecycle management)
         const ref = await getCurrentRef(context, repository);
-        multiRepoProvider.addRepository(repository, treeDataProvider, ref);
+        multiRepoProvider.addRepository(repository, treeDataProvider, ref, decorationDisposable);
 
         // Store first repository reference (for commands that need a default repo)
         if (!firstRepository) {
@@ -329,6 +329,28 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     context.subscriptions.push(git.onDidOpenRepository(async (repository) => {
         await registerRepo(repository);
         setupHeadChangeListener(repository);
+        await updateTitle();
+    }));
+
+    // Listen for removed repositories
+    context.subscriptions.push(git.onDidCloseRepository(async (repository) => {
+        console.log(`[GitBranchQuickDiff] Repository closed: ${repository.rootUri.fsPath}`);
+
+        // Dispose and remove QuickDiffProvider
+        const existingProvider = providers.get(repository);
+        if (existingProvider) {
+            existingProvider.disposable.dispose();
+            providers.delete(repository);
+        }
+
+        // Remove from multi-repo provider (also disposes decoration provider)
+        multiRepoProvider.removeRepository(repository);
+
+        // Update firstRepository if it was the one removed
+        if (firstRepository === repository) {
+            firstRepository = multiRepoProvider.repositories[0];
+        }
+
         await updateTitle();
     }));
 

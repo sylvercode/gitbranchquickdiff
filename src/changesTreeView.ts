@@ -1043,7 +1043,7 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
     private _onDidChangeTreeData = new vscode.EventEmitter<RepositoryNode | ChangedFile | DirectoryNode | MessageItem | undefined | null | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-    private _repos = new Map<Repository, { node: RepositoryNode; provider: ChangesTreeDataProvider; listenerDisposable: vscode.Disposable }>();
+    private _repos = new Map<Repository, { node: RepositoryNode; provider: ChangesTreeDataProvider; listenerDisposable: vscode.Disposable; decorationDisposable?: vscode.Disposable }>();
     private _submoduleDisplay: 'standalone' | 'integrated';
 
     // Maps parent repo → child (submodule) repos for integrated mode
@@ -1055,7 +1055,7 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
         this._submoduleDisplay = submoduleDisplay;
     }
 
-    addRepository(repo: Repository, provider: ChangesTreeDataProvider, ref: string): RepositoryNode {
+    addRepository(repo: Repository, provider: ChangesTreeDataProvider, ref: string, decorationDisposable?: vscode.Disposable): RepositoryNode {
         const node = new RepositoryNode(repo, provider, ref);
 
         // Listen to child provider's refresh events and forward them
@@ -1069,7 +1069,7 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
             }
         });
 
-        this._repos.set(repo, { node, provider, listenerDisposable });
+        this._repos.set(repo, { node, provider, listenerDisposable, decorationDisposable });
         this._rebuildSubmoduleMap();
         this._onDidChangeTreeData.fire();
         return node;
@@ -1079,6 +1079,9 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
         const entry = this._repos.get(repo);
         if (entry) {
             entry.listenerDisposable.dispose();
+            entry.decorationDisposable?.dispose();
+            // Clear decorations for this repo
+            entry.provider.decorationProvider.setChanges([]);
             this._repos.delete(repo);
             this._rebuildSubmoduleMap();
             this._onDidChangeTreeData.fire();
