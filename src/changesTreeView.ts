@@ -1323,6 +1323,18 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
         return [...dirLike, ...rest];
     }
 
+    /** Filter out submodule RepositoryNodes whose provider has no changes */
+    private async _filterNonEmptySubmodules(nodes: RepositoryNode[]): Promise<RepositoryNode[]> {
+        const results: RepositoryNode[] = [];
+        for (const node of nodes) {
+            const files = await node.provider.getChangedFiles();
+            if (files && files.length > 0) {
+                results.push(node);
+            }
+        }
+        return results;
+    }
+
     /** Returns the single top-level repo when only one is visible, or undefined if multiple are shown */
     get singleTopLevelRepo(): Repository | undefined {
         const topLevel = this._getTopLevelRepos();
@@ -1345,19 +1357,21 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
                     const subRepos = this._parentToChildren.get(repo);
                     if (subRepos && subRepos.length > 0) {
                         if (entry.provider.displayMode === DisplayMode.List) {
-                            const allSubNodes = subRepos
-                                .map(r => this._repos.get(r)?.node)
-                                .filter((n): n is RepositoryNode => n !== undefined)
-                                .sort((a, b) => {
-                                    const labelA = typeof a.label === 'string' ? a.label : '';
-                                    const labelB = typeof b.label === 'string' ? b.label : '';
-                                    return labelA.localeCompare(labelB);
-                                });
+                            const allSubNodes = await this._filterNonEmptySubmodules(
+                                subRepos
+                                    .map(r => this._repos.get(r)?.node)
+                                    .filter((n): n is RepositoryNode => n !== undefined)
+                            );
+                            allSubNodes.sort((a, b) => {
+                                const labelA = typeof a.label === 'string' ? a.label : '';
+                                const labelB = typeof b.label === 'string' ? b.label : '';
+                                return labelA.localeCompare(labelB);
+                            });
                             if (allSubNodes.length > 0) {
                                 return [...children, ...allSubNodes];
                             }
                         } else {
-                            const subNodes = this._getSubmodulesAtLevel(repo, '');
+                            const subNodes = await this._filterNonEmptySubmodules(this._getSubmodulesAtLevel(repo, ''));
                             if (subNodes.length > 0) {
                                 return this._mergeWithSubmodules(children, subNodes);
                             }
@@ -1378,20 +1392,22 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
                 if (subRepos && subRepos.length > 0) {
                     if (element.provider.displayMode === DisplayMode.List) {
                         // List mode: all submodules appear at root of parent's children
-                        const allSubNodes = subRepos
-                            .map(r => this._repos.get(r)?.node)
-                            .filter((n): n is RepositoryNode => n !== undefined)
-                            .sort((a, b) => {
-                                const labelA = typeof a.label === 'string' ? a.label : '';
-                                const labelB = typeof b.label === 'string' ? b.label : '';
-                                return labelA.localeCompare(labelB);
-                            });
+                        const allSubNodes = await this._filterNonEmptySubmodules(
+                            subRepos
+                                .map(r => this._repos.get(r)?.node)
+                                .filter((n): n is RepositoryNode => n !== undefined)
+                        );
+                        allSubNodes.sort((a, b) => {
+                            const labelA = typeof a.label === 'string' ? a.label : '';
+                            const labelB = typeof b.label === 'string' ? b.label : '';
+                            return labelA.localeCompare(labelB);
+                        });
                         if (allSubNodes.length > 0) {
                             return [...children, ...allSubNodes];
                         }
                     } else {
                         // Tree mode: insert submodules at their directory position
-                        const subNodes = this._getSubmodulesAtLevel(element.repository, '');
+                        const subNodes = await this._filterNonEmptySubmodules(this._getSubmodulesAtLevel(element.repository, ''));
                         if (subNodes.length > 0) {
                             return this._mergeWithSubmodules(children, subNodes);
                         }
@@ -1409,7 +1425,7 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
                     const provider = this.getProviderForUri(element.resourceUri);
                     const children = provider ? await provider.getChildren(element) : [];
                     const dirRelPath = path.relative(parentRepo.rootUri.fsPath, element.resourceUri.fsPath);
-                    const subNodes = this._getSubmodulesAtLevel(parentRepo, dirRelPath);
+                    const subNodes = await this._filterNonEmptySubmodules(this._getSubmodulesAtLevel(parentRepo, dirRelPath));
                     if (subNodes.length > 0) {
                         return this._mergeWithSubmodules(children, subNodes);
                     }
