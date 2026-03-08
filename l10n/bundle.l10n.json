@@ -32,5 +32,6 @@
     "status.bothDeleted": "Both Deleted",
     "status.bothModified": "Both Modified",
     "status.restored": "Restored",
-    "status.unknown": "Unknown"
+    "status.unknown": "Unknown",
+    "message.noRepositories": "No git repositories found in this workspace."
 }

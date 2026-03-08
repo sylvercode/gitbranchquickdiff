@@ -4,7 +4,7 @@
 
 VS Code extension that replaces the default diff gutter with comparisons against a configurable git reference (branch, tag, or commit). Uses the **proposed QuickDiffProvider API** (`enabledApiProposals: ["quickDiffProvider"]` in package.json) which requires `--enable-proposed-apis` flag during development.
 
-**Key Capability**: Show diff gutters comparing current file state to any git ref (not just HEAD), with a custom tree view showing all changes and file decorations in the explorer.
+**Key Capability**: Show diff gutters comparing current file state to any git ref (not just HEAD), with a custom tree view showing all changes and file decorations in the explorer. Supports **multiple repositories** with per-repo refs and optional submodule nesting.
 
 ## Architecture
 
@@ -12,27 +12,50 @@ VS Code extension that replaces the default diff gutter with comparisons against
 
 - **[extension.ts](../src/extension.ts)**: Minimal entry point - delegates to `gitbranchquickdiff.ts`
 - **[gitbranchquickdiff.ts](../src/gitbranchquickdiff.ts)**: Main controller implementing `CustomQuickDiffProvider` class
-  - Registers provider per repository with `vscode.window.registerQuickDiffProvider()`
+  - Registers one QuickDiffProvider per repository with `vscode.window.registerQuickDiffProvider()`
   - Provider **re-registers** (dispose + recreate) on HEAD changes (checkout) and config changes
   - Returns `undefined` when disabled to fall back to VS Code default behavior
-  - **Single Tree View Architecture**: Creates one tree view for the first repository only
-  - **Tree View Title Management**: Dynamically updates title to show current ref or deactivation state
-    - Active: `Quick Diff (main)` or `Quick Diff (branch-name)`
+  - **Multi-Repo Tree Architecture**: Creates a single `MultiRepoTreeDataProvider` that orchestrates per-repo `ChangesTreeDataProvider` instances
+  - **Tree View Title Management**: Dynamically updates title based on repo count and state
+    - Single repo active: `Quick Diff (main)` or `Quick Diff (branch-name)`
+    - Multiple repos: `Quick Diff`
     - Deactivated: `Quick Diff (deactivated)`
     - Updates on HEAD changes, config changes, and initial registration
-  - Stores global references: `currentTreeDataProvider`, `firstRepository`, `gitAPI` for command access
+  - Stores global references: `currentMultiRepoProvider`, `firstRepository`, `gitAPI` for command access
   - Initializes display mode from saved configuration on startup
-  - All settings are **global** (not per-repository)
+  - **Per-repo settings**: `ref` and `recentRefs` are stored per-repository; `enabled`, `displayMode`, `defaultAction`, `submoduleDisplay` are global
+  - **Dynamic repository handling**: Listens for `onDidOpenRepository` / `onDidCloseRepository` to add/remove repos at runtime
+  - **Workspace state migration**: Automatically migrates old single-repo workspace state (string `ref`, array `recentRefs`) to per-repo maps on first access
 - **[changesTreeView.ts](../src/changesTreeView.ts)**: Tree view provider for displaying changed files
   - `ExtendedStatus` enum: Extends Git Status with `RESTORED` status (28 values total: 0-27)
     - `RESTORED`: Files in git state (staged/unstaged/merge) that match ref content
   - `toExtendedStatus()`: Conversion function from git.Status to ExtendedStatus
   - `DisplayMode` enum: Defines view modes (`List` or `Tree`)
-  - `MessageItem`: Tree item for displaying informational messages (e.g., activation prompt when disabled)
-  - `ChangesTreeDataProvider`: Main tree provider showing all changes (diff + worktree)
+  - `MessageItem`: Tree item for displaying informational messages (e.g., activation prompt when disabled, no repos found)
+  - `RepositoryNode`: Tree item representing a git repository in multi-repo mode
+    - Label: repo folder name, Description: ref value
+    - Icon: `$(repo)` for top-level, `$(repo-submodule)` for submodules
+    - `contextValue`: `'repository'` (used for context menu `when` clauses)
+    - Stores references to its `ChangesTreeDataProvider` and `git.Repository`
+    - `updateDescription(ref)`: Updates displayed ref
+    - `isSubmodule` setter: Toggles between repo/submodule icon
+  - `MultiRepoTreeDataProvider`: Top-level tree data provider orchestrating all repos
+    - Holds `Map<Repository, { node, provider, listenerDisposable, decorationDisposable }>`
+    - **Single-repo optimization**: When only 1 repo exists, skips `RepositoryNode` level (preserves single-repo UX)
+    - **Multi-repo mode**: Returns `RepositoryNode[]` at top level, each delegating to its `ChangesTreeDataProvider`
+    - **Submodule support**: `_submoduleDisplay` mode (`standalone` or `integrated`)
+      - `standalone`: All repos at top level regardless of submodule relationships
+      - `integrated`: Submodule repos nested under parent `RepositoryNode`
+      - `_rebuildSubmoduleMap()`: Detects parent→child relationships via `repository.state.submodules`
+    - `addRepository()` / `removeRepository()`: Dynamic repo management with decoration provider lifecycle
+    - `getProviderForUri(uri)`: Finds which repo's provider owns a given file URI
+    - `refresh()` / `refreshRepo(repo)`: Refresh all or one repo
+    - `setDisplayMode()` / `setSubmoduleDisplay()`: Global mode changes across all providers
+    - **0-repos case**: Returns `MessageItem` when no repositories are found
+  - `ChangesTreeDataProvider`: Per-repo tree provider showing all changes (diff + worktree)
     - **Deactivation Behavior**: When `gitbranchquickdiff.enabled` is false:
       - Returns `MessageItem` with activation prompt instead of file list
-      - Message: "Quick Diff is deactivated. Use the activate command to enable it."
+      - Message: "Quick Diff is deactivated. Click here to enable it."
       - Clicking message executes `gitbranchquickdiff.activate` command
     - Displays files changed between ref and HEAD via `repository.diffBetween(ref, 'HEAD')`
     - Includes working tree changes: `indexChanges` (staged), `workingTreeChanges` (unstaged), `mergeChanges`
@@ -51,21 +74,21 @@ VS Code extension that replaces the default diff gutter with comparisons against
     - `setDisplayMode()`: Switch between list/tree modes (triggers refresh)
     - `buildTree()`: Constructs directory hierarchy with folder compacting logic
     - Tracks `_currentDirectoryNodes` for tree operations
-    - **Critical**: Passes decoration provider to tree view for registration
   - `DirectoryNode`: Tree item representing folders in tree mode
     - Shows file count in description
     - Has `resourceUri` set to directory path
     - Collapsible state with folder icon
     - **Inline Actions**: 
-      - `Open Changes` command with `request-changes` icon opens all files in directory in multi-file diff view
+      - `Open Changes` command with `multi-diff-editor-label-icon` icon opens all files in directory in multi-file diff view
       - `Restore` command with `discard` icon restores all files in directory to ref state
   - `ChangesDecorationProvider`: File decoration provider for explorer and tab headers
-    - **Registered once globally** (never re-registered, unlike QuickDiffProvider)
+    - **Registered per-repo** independently (URIs are unique across repos, so no conflicts)
     - Only decorates files with diff changes (ref vs HEAD) with `⁺` superscript badge
     - Does not decorate worktree-only changes (avoids conflicts with built-in Git extension)
     - Updates decorations via `setChanges()` when tree refreshes
     - **Color Priority**: Uses git status color first (index → workingTree → merge → ref status)
     - Decoration update happens **after** ChangedFile creation to reuse color logic
+    - Disposed when repository is removed from `MultiRepoTreeDataProvider`
   - `ChangedFile`: Tree item with smart status display and configurable click behavior:
     - Diff changes: `M⁺` (with superscript plus)
     - Diff + worktree: `M⁺, M` (comma-separated, shows all git statuses)
@@ -110,10 +133,10 @@ VS Code extension that replaces the default diff gutter with comparisons against
 
 1. **Provider Lifecycle & Re-registration**: Providers are disposed and re-registered (not updated in-place) when:
    - Repository HEAD changes (branch checkout) - detected via `repository.state.onDidChange`
-   - Configuration changes (`gitbranchquickdiff.ref`, `gitbranchquickdiff.enabled`, `gitbranchquickdiff.displayMode`, `gitbranchquickdiff.defaultAction`)
+   - Configuration changes (`gitbranchquickdiff.ref`, `gitbranchquickdiff.enabled`, `gitbranchquickdiff.displayMode`, `gitbranchquickdiff.defaultAction`, `gitbranchquickdiff.submoduleDisplay`)
    - **QuickDiffProvider**: Disposed and re-registered with updated label on changes
-   - **Tree View**: Refreshed via `_onDidChangeTreeData.fire()` (not re-registered)
-   - **FileDecorationProvider**: Registered once per repository, never re-registered; updates via `setChanges()`
+   - **Tree View**: Refreshed via `MultiRepoTreeDataProvider.refresh()` (not re-registered)
+   - **FileDecorationProvider**: Registered once per repository, disposed when repo removed; updates via `setChanges()`
 
 2. **Git API Integration**: Wait for Git extension state `'initialized'` before registering providers:
    ```typescript
@@ -124,14 +147,17 @@ VS Code extension that replaces the default diff gutter with comparisons against
    }
    ```
 
-3. **Workspace State Pattern**: All user-modified settings are stored in global workspace state (not configuration):
-   - Keys: `gitbranchquickdiff.ref`, `gitbranchquickdiff.enabled`, `gitbranchquickdiff.displayMode`, `gitbranchquickdiff.defaultAction` (simple strings, no repository path)
-   - Settings: `enabled`, `ref`, `displayMode`, `defaultAction`
+3. **Workspace State Pattern**: Settings stored in global workspace state (not configuration):
+   - **Per-repo settings** (stored as `Record<string, T>` keyed by `repo.rootUri.fsPath`):
+     - `gitbranchquickdiff.refs`: Per-repo ref map (`Record<string, string>`)
+     - `gitbranchquickdiff.recentRefs`: Per-repo recent refs map (`Record<string, string[]>`)
+   - **Global settings** (single value):
+     - `gitbranchquickdiff.enabled`, `gitbranchquickdiff.displayMode`, `gitbranchquickdiff.defaultAction`, `gitbranchquickdiff.submoduleDisplay`
    - Configuration settings serve as fallback defaults when workspace state is `undefined`
    - Commands write to workspace state, not configuration
    - **Configuration Change Handling**: When a configuration setting changes, the corresponding workspace state override is automatically cleared
-   - Global helper functions `getCurrentRef()`, `getCurrentEnabled()`, `getCurrentDisplayMode()`, `getCurrentDefaultAction()` check workspace state first, then fall back to configuration
-   - All settings are **global across the workspace** (single tree view shows first repository)
+   - Helper functions: `getRawRef(context, repository)`, `getCurrentRef(context, repository)`, `getCurrentEnabled(context)`, `getCurrentDisplayMode(context)`, `getCurrentDefaultAction(context)`, `getCurrentSubmoduleDisplay(context)`
+   - **Migration**: `migrateWorkspaceState()` converts old single-string `ref` and single-array `recentRefs` to per-repo maps
 
 4. **Change Tracking Strategy**: Tree view shows union of multiple sources:
    - **Diff changes** (ref vs HEAD): `repository.diffBetween(ref, 'HEAD')` - committed differences
@@ -148,12 +174,14 @@ VS Code extension that replaces the default diff gutter with comparisons against
      - Significantly reduces redundant git operations in large monorepos
 
 5. **Decoration Strategy** (prevents conflicts with built-in Git extension):
+   - Each repo has its own `ChangesDecorationProvider`, registered independently
    - Only files with diff changes (ref vs HEAD) get `⁺` badge decorations in explorer/tabs
    - Worktree-only changes appear in tree view but **not decorated** in explorer
    - Uses `Map<string, ChangeInfo>` keyed by `uri.toString()` for decoration tracking
    - Fires `onDidChangeFileDecorations` only for changed URIs (optimization)
    - **Color Priority**: Git status (index → workingTree → merge) takes precedence over ref status
    - Decoration update happens **after** ChangedFile creation to reuse the same color calculation logic
+   - No conflicts between repos since file URIs are unique across repos
 
 6. **Status Enum Handling**: 
    - **Critical**: git.Status enum has INDEX_MODIFIED=0, requiring explicit `!== undefined` checks (not truthy evaluation)
@@ -161,22 +189,34 @@ VS Code extension that replaces the default diff gutter with comparisons against
    - Never modify external git.d.ts file - use conversion function `toExtendedStatus()`
    - All 28 status values (0-27) must be handled in getStatusText/Color/Tooltip functions
 
-7. **Provider Registration Pattern**: One QuickDiffProvider per repository, but single tree view:
-   - Pattern matching: `{ pattern: '${repository.rootUri.fsPath}/**' }` scopes to specific repo
+7. **Multi-Repo Provider Architecture**:
+   - One `MultiRepoTreeDataProvider` manages all repos, one `ChangesTreeDataProvider` per repo
+   - One `QuickDiffProvider` per repository, scoped via pattern matching: `{ pattern: '${repository.rootUri.fsPath}/**' }`
    - QuickDiffProviders stored in local `Map<git.Repository, { provider, disposable }>` for lifecycle management
-   - **Single tree view** created for first repository only, stored in `currentTreeDataProvider`
-   - Global references: `firstRepository` (the one shown in tree view), `gitAPI` (for querying all repositories)
-   - Commands query `gitAPI.repositories` directly to find which repository a file belongs to
+   - **Single-repo optimization**: When only 1 repo, `MultiRepoTreeDataProvider.getChildren()` delegates directly (no `RepositoryNode` level)
+   - **Multi-repo mode**: Each repo appears as a `RepositoryNode` with its ref in description
+   - Commands that operate on a specific repo accept optional `RepositoryNode` parameter; if not provided, show repo picker
+   - `pickRepository()` helper shows QuickPick when multiple repos exist, skips for single repo
+   - Global references: `currentMultiRepoProvider`, `firstRepository`, `gitAPI`
 
-8. **Git URI Generation**: Use `git.toGitUri(uri, ref)` to create virtual URIs for historical file versions in diffs.
+8. **Submodule Display**:
+   - `submoduleDisplay` setting: `"standalone"` (default) or `"integrated"`
+   - **Standalone**: All repos (including submodules) shown at top level
+   - **Integrated**: Submodule repos nested under their parent `RepositoryNode`
+   - Detection: `_rebuildSubmoduleMap()` uses `repository.state.submodules` to find parent→child relationships
+   - Submodule nodes use `$(repo-submodule)` icon to distinguish from top-level repos
+   - Toggle via `toggleSubmoduleDisplay` command
 
-9. **Multi-File Diff Views**: Use `vscode.changes` command to open multiple files in a unified diff view:
-   - Format: `vscode.commands.executeCommand('vscode.changes', title, changes)`
-   - Changes array: `[URI, URI, URI][]` where each tuple is `[label, left (old), right (new)]`
-   - Used by "Open All Changes" command (all files) and "Open Changes" on directories (directory files)
-   - Skip deleted files to avoid errors in multi-file view
+9. **Git URI Generation**: Use `git.toGitUri(uri, ref)` to create virtual URIs for historical file versions in diffs.
 
-10. **Restore Functionality**: Files can be restored to ref state:
+10. **Multi-File Diff Views**: Use `vscode.changes` command to open multiple files in a unified diff view:
+    - Format: `vscode.commands.executeCommand('vscode.changes', title, changes)`
+    - Changes array: `[URI, URI, URI][]` where each tuple is `[label, left (old), right (new)]`
+    - Used by "Open All Changes" command (all files) and "Open Changes" on directories (directory files)
+    - When invoked from `RepositoryNode`, only shows that repo's changes
+    - Skip deleted files to avoid errors in multi-file view
+
+11. **Restore Functionality**: Files can be restored to ref state:
     - **Added files**: Deleted (they don't exist in ref)
     - **Renamed files**: New file deleted, old file restored at original path
     - **Modified/deleted files**: Content restored from ref using `repository.show(ref, path)`
@@ -211,25 +251,31 @@ Press **F5** to launch Extension Development Host with:
   - Located in view title menu ("..." overflow)
   - Conditionally shown based on `config.gitbranchquickdiff.enabled`
   - When deactivated, only "activate" command is visible; all other commands are hidden
-- `Set quick diff ref`: Change comparison reference (shows input box with current value)
+- `Set quick diff ref`: Change comparison reference
   - Icon: `$(target)` (target icon)
-  - Located in view title navigation bar (header)
+  - Located in view title navigation bar (header) and repository node inline actions
+  - In multi-repo mode: shows repo picker first (or invoked directly from `RepositoryNode`)
+  - Shows QuickPick with recent refs and supports custom input
   - Hidden when extension is deactivated
 - `Revert quick diff ref to user setting`: Reset workspace override to `undefined`
+  - In multi-repo mode: shows repo picker first
 - `Refresh`: Manually refresh the changes tree view
   - Icon: `$(refresh)` (refresh icon)
-  - Located in view title navigation bar (header)
+  - Located in view title navigation bar (header) and repository node inline actions
   - Clears all caches (tag cache and tree view caches) to force fresh git lookups
+  - Can target a specific repo when invoked from `RepositoryNode`
   - Hidden when extension is deactivated
 - `Open All Changes`: Open all changed files in multi-file diff view
-  - Icon: `$(files)` (files icon)
-  - Located in view title navigation bar (header)
+  - Icon: `$(multi-diff-editor-label-icon)`
+  - Located in view title navigation bar (header) and repository node inline actions
+  - When invoked from `RepositoryNode`, only shows that repo's changes
+  - When invoked from view title, collects changes from all repos
   - Uses `vscode.changes` command to show all changes in a single multi-file diff view
   - Skips deleted files to avoid errors
   - Hidden when extension is deactivated
 - `Open Changes` (on files): Open diff view for a changed file (inline icon: compare-changes)
   - Hidden when extension is deactivated
-- `Open Changes` (on directories): Open all files in directory in multi-file diff view (inline icon: request-changes)
+- `Open Changes` (on directories): Open all files in directory in multi-file diff view (inline icon: multi-diff-editor-label-icon)
   - Only shown in tree mode on directory items
   - Recursively collects all files in the directory and subdirectories
   - Uses `vscode.changes` command with format `[URI, URI, URI][]` as `[label, left, right][]`
@@ -238,8 +284,12 @@ Press **F5** to launch Extension Development Host with:
 - `Open File`: Open file directly without diff (inline icon: go-to-file)
   - Hidden when extension is deactivated
 - `View as List` / `View as Tree`: Toggle between list and tree display modes (shown in view menu with checkmarks)
+  - Updates all per-repo providers' display mode (global setting)
   - Hidden when extension is deactivated
 - `Open File by Default` / `Open Changes by Default`: Set default click action (in view title ... menu, conditionally shown)
+  - Hidden when extension is deactivated
+- `Toggle Submodule Display`: Switch between standalone and integrated submodule display
+  - Located in view title menu ("..." overflow)
   - Hidden when extension is deactivated
 - `Restore File`: Restore a single file to ref state (inline icon: discard)
   - Shows confirmation dialog before restore
@@ -256,6 +306,12 @@ Set `gitbranchquickdiff.ref` to test variable patterns:
 - `${git:lastTag:^v[0-9].*}` - last semver tag starting with 'v'
 - `${git:track}` - tracking branch
 - `${env:MYREF}` - environment variable from launch config
+
+### Testing Multi-Repo
+- Open a workspace with multiple git repositories to see `RepositoryNode` items
+- Use `Set quick diff ref` on individual repo nodes to set per-repo refs
+- Test `submoduleDisplay` toggle with repos containing submodules
+- Verify file decorations work independently across repos
 
 ## File Organization
 
@@ -299,20 +355,22 @@ gitbranchquickdiff.enabled: boolean (default: true)
 gitbranchquickdiff.displayMode: "list" | "tree" (default: "list")
 gitbranchquickdiff.defaultAction: "openChanges" | "openFile" (default: "openChanges")
 gitbranchquickdiff.tagCacheTTL: number (default: 1) // Cache duration in minutes for ${git:lastTag} lookups. 0 = no time-based expiry
+gitbranchquickdiff.submoduleDisplay: "standalone" | "integrated" (default: "standalone") // How submodule repos are displayed
 ```
 
 **Configuration vs Workspace State:**
-- All settings (`enabled`, `ref`, `displayMode`, `defaultAction`) have defaults in configuration
-- Actual values are stored in **global workspace state** (keys: `gitbranchquickdiff.ref`, `gitbranchquickdiff.enabled`, etc. - no repository path suffix)
+- Global settings (`enabled`, `displayMode`, `defaultAction`, `submoduleDisplay`) have defaults in configuration
+- Per-repo settings (`ref`, `recentRefs`) are stored as `Record<string, T>` maps keyed by `repo.rootUri.fsPath`
+- Actual values are stored in **workspace state** (configuration values are fallback defaults when state is `undefined`)
 - Commands write to workspace state, not configuration
-- Configuration values are used only as fallbacks when workspace state is undefined
-- **Configuration Change Handling**: When user changes a configuration setting, the corresponding workspace state override is automatically cleared to let the new config value take effect
-- This allows workspace-level customization that overrides configuration settings
+- **Configuration Change Handling**: When a configuration setting changes, the corresponding workspace state override is automatically cleared to let the new config value take effect
+- **Migration**: Old single-value workspace state keys are automatically migrated to per-repo maps
 
 The `ref` value undergoes variable substitution before use, enabling dynamic references based on workspace state.
 The `enabled` value is persisted in global workspace state.
 The `displayMode` value is persisted in global workspace state to remember user's preferred view mode.
 The `defaultAction` value is persisted in global workspace state to control what happens when clicking a file in the tree view.
+The `submoduleDisplay` value is persisted in global workspace state to control submodule nesting.
 
 ## Common Development Patterns
 
@@ -325,13 +383,13 @@ The `defaultAction` value is persisted in global workspace state to control what
 ### Modifying Tree View Display
 1. Update `ChangedFile` constructor to change label/description/icon
 2. Modify `getStatusText()`, `getStatusColor()`, or `getStatusTooltip()` for shared logic
-3. Refresh tree via `treeDataProvider.refresh()` to see changes
+3. Refresh tree via `multiRepoProvider.refresh()` to see changes
 4. Consider display mode context when showing directory paths (list shows full path, tree doesn't)
 
 ### Display Mode Implementation
 1. **List Mode**: Flat list with full paths, sorted by path with root files first
 2. **Tree Mode**: Hierarchical structure using `DirectoryNode` items
-3. **Switching Modes**: Updates `_displayMode` in provider and calls `refresh()`
+3. **Switching Modes**: `MultiRepoTreeDataProvider.setDisplayMode()` updates all providers and calls `refresh()`
 4. **Folder Compacting**: Respects `explorer.compactFolders` setting in tree mode
 5. **Sorting**: Directories always before files, both sorted alphabetically
 
@@ -339,6 +397,12 @@ The `defaultAction` value is persisted in global workspace state to control what
 1. Add event listener in `registerProvider()` function
 2. Call `reregisterQuickDiffProvider(repository)` helper
 3. Remember: Tree views refresh, decorations update, providers re-register
+
+### Adding a New Per-Repo Setting
+1. Add workspace state key constant and `Record<string, T>` storage pattern
+2. Add helper function with `(context, repository)` signature
+3. Update `migrateWorkspaceState()` if migrating from old format
+4. Update `clearWorkspaceCache()` to clear the new key
 
 ### Handling New Git Status Types
 1. Add case to `getStatusText()`, `getStatusColor()`, `getStatusTooltip()`

@@ -32,5 +32,6 @@
     "status.bothDeleted": "Supprimé des deux côtés",
     "status.bothModified": "Modifié des deux côtés",
     "status.restored": "Restauré",
-    "status.unknown": "Inconnu"
+    "status.unknown": "Inconnu",
+    "message.noRepositories": "Aucun dépôt git trouvé dans cet espace de travail."
 }

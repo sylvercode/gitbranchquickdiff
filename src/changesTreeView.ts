@@ -1196,7 +1196,7 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
     async getChildren(element?: RepositoryNode | ChangedFile | DirectoryNode | MessageItem): Promise<(RepositoryNode | ChangedFile | DirectoryNode | MessageItem)[]> {
         if (!element) {
             if (this._repos.size === 0) {
-                return [];
+                return [new MessageItem(l10n('message.noRepositories'))];
             }
             const topLevel = this._getTopLevelRepos();
             if (topLevel.length === 1 && this._repos.size === 1) {
