@@ -180,11 +180,34 @@ function getStatusTooltip(status: ExtendedStatus): string {
 }
 
 // Message item for displaying info in the tree view
-class MessageItem extends vscode.TreeItem {
+export class MessageItem extends vscode.TreeItem {
     constructor(message: string, command?: vscode.Command) {
         super(message, vscode.TreeItemCollapsibleState.None);
         this.contextValue = 'message';
         this.command = command;
+    }
+}
+
+export class RepositoryNode extends vscode.TreeItem {
+    public readonly provider: ChangesTreeDataProvider;
+    public readonly repository: Repository;
+
+    constructor(
+        repository: Repository,
+        provider: ChangesTreeDataProvider,
+        ref: string
+    ) {
+        super(path.basename(repository.rootUri.fsPath), vscode.TreeItemCollapsibleState.Collapsed);
+        this.repository = repository;
+        this.provider = provider;
+        this.description = ref;
+        this.iconPath = new vscode.ThemeIcon('repo');
+        this.contextValue = 'repository';
+        this.resourceUri = repository.rootUri;
+    }
+
+    updateDescription(ref: string): void {
+        this.description = ref;
     }
 }
 
@@ -1001,5 +1024,121 @@ export async function openChange(git: API, repository: Repository, getRef: () =>
             // If file doesn't exist in ref (new file), just open it
             await vscode.commands.executeCommand('vscode.open', uri);
         }
+    }
+}
+
+export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<RepositoryNode | ChangedFile | DirectoryNode | MessageItem> {
+    private _onDidChangeTreeData = new vscode.EventEmitter<RepositoryNode | ChangedFile | DirectoryNode | MessageItem | undefined | null | void>();
+    readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+    private _repos = new Map<Repository, { node: RepositoryNode; provider: ChangesTreeDataProvider; listenerDisposable: vscode.Disposable }>();
+
+    addRepository(repo: Repository, provider: ChangesTreeDataProvider, ref: string): RepositoryNode {
+        const node = new RepositoryNode(repo, provider, ref);
+
+        // Listen to child provider's refresh events and forward them
+        const listenerDisposable = provider.onDidChangeTreeData(() => {
+            if (this._repos.size === 1) {
+                // Single repo: refresh entire tree (no repo node level)
+                this._onDidChangeTreeData.fire();
+            } else {
+                // Multi repo: refresh only this repo's subtree
+                this._onDidChangeTreeData.fire(node);
+            }
+        });
+
+        this._repos.set(repo, { node, provider, listenerDisposable });
+        this._onDidChangeTreeData.fire();
+        return node;
+    }
+
+    removeRepository(repo: Repository): void {
+        const entry = this._repos.get(repo);
+        if (entry) {
+            entry.listenerDisposable.dispose();
+            this._repos.delete(repo);
+            this._onDidChangeTreeData.fire();
+        }
+    }
+
+    getProviderForUri(uri: vscode.Uri): ChangesTreeDataProvider | undefined {
+        for (const [repo, entry] of this._repos) {
+            if (uri.fsPath.startsWith(repo.rootUri.fsPath)) {
+                return entry.provider;
+            }
+        }
+        return undefined;
+    }
+
+    getProviderForRepo(repo: Repository): ChangesTreeDataProvider | undefined {
+        return this._repos.get(repo)?.provider;
+    }
+
+    getNodeForRepo(repo: Repository): RepositoryNode | undefined {
+        return this._repos.get(repo)?.node;
+    }
+
+    get repositories(): Repository[] {
+        return [...this._repos.keys()];
+    }
+
+    get size(): number {
+        return this._repos.size;
+    }
+
+    refresh(): void {
+        for (const entry of this._repos.values()) {
+            entry.provider.refresh();
+        }
+    }
+
+    refreshRepo(repo: Repository): void {
+        const entry = this._repos.get(repo);
+        if (entry) {
+            entry.provider.refresh();
+        }
+    }
+
+    setDisplayMode(mode: 'list' | 'tree'): void {
+        for (const entry of this._repos.values()) {
+            entry.provider.setDisplayMode(mode);
+        }
+    }
+
+    getTreeItem(element: RepositoryNode | ChangedFile | DirectoryNode | MessageItem): vscode.TreeItem {
+        return element;
+    }
+
+    async getChildren(element?: RepositoryNode | ChangedFile | DirectoryNode | MessageItem): Promise<(RepositoryNode | ChangedFile | DirectoryNode | MessageItem)[]> {
+        if (!element) {
+            if (this._repos.size === 0) {
+                return [];
+            }
+            if (this._repos.size === 1) {
+                // Single repo: delegate directly (skip repo node)
+                const entry = [...this._repos.values()][0];
+                return entry.provider.getChildren();
+            }
+            // Multiple repos: return repo nodes
+            return [...this._repos.values()].map(e => e.node);
+        }
+
+        if (element instanceof RepositoryNode) {
+            return element.provider.getChildren();
+        }
+
+        if (element instanceof DirectoryNode) {
+            // Find the provider for this directory by URI
+            if (element.resourceUri) {
+                const provider = this.getProviderForUri(element.resourceUri);
+                if (provider) {
+                    return provider.getChildren(element);
+                }
+            }
+            return [];
+        }
+
+        // ChangedFile and MessageItem have no children
+        return [];
     }
 }
