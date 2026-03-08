@@ -204,7 +204,7 @@ export class RepositoryNode extends vscode.TreeItem {
         this.provider = provider;
         this._isSubmodule = isSubmodule;
         this.description = ref;
-        this.iconPath = new vscode.ThemeIcon(isSubmodule ? 'repo-submodule' : 'repo');
+        this.iconPath = new vscode.ThemeIcon(isSubmodule ? 'file-symlink-directory' : 'repo');
         this.contextValue = 'repository';
         this.resourceUri = repository.rootUri;
     }
@@ -215,7 +215,7 @@ export class RepositoryNode extends vscode.TreeItem {
 
     set isSubmodule(value: boolean) {
         this._isSubmodule = value;
-        this.iconPath = new vscode.ThemeIcon(value ? 'repo-submodule' : 'repo');
+        this.iconPath = new vscode.ThemeIcon(value ? 'file-symlink-directory' : 'repo');
     }
 
     updateDescription(ref: string): void {
