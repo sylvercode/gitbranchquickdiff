@@ -16,7 +16,8 @@ export const EXTENTION_NAME = 'gitbranchquickdiff';
 const REF_CONFIG_NAME = 'ref';
 const DISPLAY_MODE_CONFIG_NAME = 'displayMode';
 const DEFAULT_ACTION_CONFIG_NAME = 'defaultAction';
-const WORKSPACE_STATE_KEY_REF = 'gitbranchquickdiff.ref';
+const WORKSPACE_STATE_KEY_REF = 'gitbranchquickdiff.ref'; // Legacy key for migration
+const WORKSPACE_STATE_KEY_REFS = 'gitbranchquickdiff.refs'; // Per-repo ref map: Record<string, string>
 const WORKSPACE_STATE_KEY_ENABLED = 'gitbranchquickdiff.enabled';
 const WORKSPACE_STATE_KEY_DISPLAY_MODE = 'gitbranchquickdiff.displayMode';
 const WORKSPACE_STATE_KEY_DEFAULT_ACTION = 'gitbranchquickdiff.defaultAction';
@@ -28,12 +29,13 @@ const DEFAULT_DISPLAY_MODE = 'list';
 const DEFAULT_DEFAULT_ACTION = 'openChanges';
 
 // Global helper functions to access workspace state
-function getRawRef(context: vscode.ExtensionContext): string {
-    // Try global workspace state first
-    const cachedRef = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_REF);
+function getRawRef(context: vscode.ExtensionContext, repository: git.Repository): string {
+    // Try per-repo workspace state first
+    const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS);
+    const repoKey = repository.rootUri.fsPath;
 
-    if (cachedRef !== undefined) {
-        return cachedRef;
+    if (refsMap !== undefined && refsMap[repoKey] !== undefined) {
+        return refsMap[repoKey];
     }
 
     // Fall back to setting (default ref)
@@ -42,18 +44,7 @@ function getRawRef(context: vscode.ExtensionContext): string {
 }
 
 async function getCurrentRef(context: vscode.ExtensionContext, repository: git.Repository): Promise<string> {
-    // Try global workspace state first
-    const cachedRef = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_REF);
-
-    if (cachedRef !== undefined) {
-        return await vscodeVariables.variables(repository, cachedRef);
-    }
-
-    // Fall back to setting (default ref)
-    const configRef = vscode.workspace.getConfiguration(EXTENTION_NAME)
-        .get<string>(REF_CONFIG_NAME) ?? DEFAULT_REF;
-
-    return await vscodeVariables.variables(repository, configRef);
+    return await vscodeVariables.variables(repository, getRawRef(context, repository));
 }
 
 function getCurrentEnabled(context: vscode.ExtensionContext): boolean {
@@ -86,6 +77,29 @@ function getCurrentDefaultAction(context: vscode.ExtensionContext): string {
     // Fall back to setting (default action)
     return vscode.workspace.getConfiguration(EXTENTION_NAME)
         .get<string>(DEFAULT_ACTION_CONFIG_NAME) ?? DEFAULT_DEFAULT_ACTION;
+}
+
+async function migrateWorkspaceState(context: vscode.ExtensionContext, repositories: git.Repository[]) {
+    // Migrate ref: from single string to per-repo map
+    const oldRef = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_REF);
+    if (oldRef !== undefined) {
+        const refsMap: Record<string, string> = {};
+        for (const repo of repositories) {
+            refsMap[repo.rootUri.fsPath] = oldRef;
+        }
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, refsMap);
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+    }
+
+    // Migrate recentRefs: from single array to per-repo map
+    const oldRecentRefs = context.workspaceState.get<unknown>(WORKSPACE_STATE_KEY_RECENT_REFS);
+    if (Array.isArray(oldRecentRefs)) {
+        const recentRefsMap: Record<string, string[]> = {};
+        for (const repo of repositories) {
+            recentRefsMap[repo.rootUri.fsPath] = [...oldRecentRefs];
+        }
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, recentRefsMap);
+    }
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -137,6 +151,9 @@ async function registerToGitExtention(context: vscode.ExtensionContext) {
 async function registerProvider(context: vscode.ExtensionContext, git: git.API) {
     // Store git API reference for command access
     gitAPI = git;
+
+    // Migrate workspace state from global to per-repo format
+    await migrateWorkspaceState(context, git.repositories);
 
     // Register our custom content provider for historical file versions
     const contentProvider = new GitBranchQuickDiffContentProvider(context, git);
@@ -290,7 +307,7 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
 
             // Clear workspace state overrides for changed configurations
             if (e.affectsConfiguration(`${EXTENTION_NAME}.${REF_CONFIG_NAME}`)) {
-                await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+                await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, undefined);
             }
             if (e.affectsConfiguration(`${EXTENTION_NAME}.${DISPLAY_MODE_CONFIG_NAME}`)) {
                 await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
@@ -444,12 +461,17 @@ async function disableExtention(context: vscode.ExtensionContext) {
 }
 
 async function changeRef(context: vscode.ExtensionContext) {
+    if (!firstRepository) {
+        return;
+    }
+
     // Get raw (unsubstituted) ref value to show in input box
     // This preserves variable syntax like ${git:lastTag}
-    const currentValue = getRawRef(context);
+    const currentValue = getRawRef(context, firstRepository);
 
-    // Load recent refs from workspace state
-    const recentRefs = context.workspaceState.get<string[]>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? [];
+    // Load recent refs from workspace state (per-repo)
+    const allRecentRefs = context.workspaceState.get<Record<string, string[]>>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? {};
+    const recentRefs = allRecentRefs[firstRepository.rootUri.fsPath] ?? [];
 
     // Create quick pick with custom input support
     const quickPick = vscode.window.createQuickPick();
@@ -487,11 +509,13 @@ async function changeRef(context: vscode.ExtensionContext) {
     });
 
     if (input !== undefined && input.trim() !== '') {
-        // Save to global workspace state
-        await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, input);
+        // Save to per-repo workspace state
+        const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS) ?? {};
+        refsMap[firstRepository.rootUri.fsPath] = input;
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, refsMap);
 
         // Update recent refs list
-        await updateRecentRefs(context, input);
+        await updateRecentRefs(context, firstRepository, input);
 
         // Re-register all providers with the new ref
         if (reregisterAllProvidersFunc) {
@@ -500,9 +524,11 @@ async function changeRef(context: vscode.ExtensionContext) {
     }
 }
 
-async function updateRecentRefs(context: vscode.ExtensionContext, ref: string) {
-    // Load current recent refs
-    const recentRefs = context.workspaceState.get<string[]>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? [];
+async function updateRecentRefs(context: vscode.ExtensionContext, repository: git.Repository, ref: string) {
+    // Load current recent refs (per-repo)
+    const allRecentRefs = context.workspaceState.get<Record<string, string[]>>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? {};
+    const repoKey = repository.rootUri.fsPath;
+    const recentRefs = allRecentRefs[repoKey] ?? [];
 
     // Remove ref if it already exists to avoid duplicates
     const filtered = recentRefs.filter(r => r !== ref);
@@ -514,12 +540,22 @@ async function updateRecentRefs(context: vscode.ExtensionContext, ref: string) {
     const updated = filtered.slice(0, MAX_RECENT_REFS);
 
     // Save back to workspace state
-    await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, updated);
+    allRecentRefs[repoKey] = updated;
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, allRecentRefs);
 }
 
 async function resetRef(context: vscode.ExtensionContext) {
-    // Clear global workspace state
-    await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+    if (!firstRepository) {
+        return;
+    }
+
+    // Clear per-repo ref from workspace state
+    const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS);
+    if (refsMap !== undefined) {
+        delete refsMap[firstRepository.rootUri.fsPath];
+        const hasEntries = Object.keys(refsMap).length > 0;
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, hasEntries ? refsMap : undefined);
+    }
 
     // Re-register all providers to use the default setting
     if (reregisterAllProvidersFunc) {
@@ -542,7 +578,8 @@ async function clearWorkspaceCache(context: vscode.ExtensionContext) {
     }
 
     // Clear all global workspace state
-    await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined); // Clear legacy key
     await context.workspaceState.update(WORKSPACE_STATE_KEY_ENABLED, undefined);
     await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
     await context.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
