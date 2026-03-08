@@ -221,6 +221,21 @@
           "command": "gitbranchquickdiff.restoreDirectory",
           "when": "view == gitbranchquickdiff.changes && viewItem == directory && gitbranchquickdiff.enabled",
           "group": "inline@2"
+        },
+        {
+          "command": "gitbranchquickdiff.changeref",
+          "when": "view == gitbranchquickdiff.changes && viewItem == repository && gitbranchquickdiff.enabled",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitbranchquickdiff.openAllChanges",
+          "when": "view == gitbranchquickdiff.changes && viewItem == repository && gitbranchquickdiff.enabled",
+          "group": "inline@2"
+        },
+        {
+          "command": "gitbranchquickdiff.refreshChanges",
+          "when": "view == gitbranchquickdiff.changes && viewItem == repository && gitbranchquickdiff.enabled",
+          "group": "inline@3"
         }
       ]
     }

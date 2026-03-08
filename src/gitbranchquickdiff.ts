@@ -110,13 +110,13 @@ export function activate(context: vscode.ExtensionContext) {
 function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.activate`, () => enableExtention(context));
     registerCommand(context, `${EXTENTION_NAME}.deactivate`, () => disableExtention(context));
-    registerCommand(context, `${EXTENTION_NAME}.changeref`, () => changeRef(context));
-    registerCommand(context, `${EXTENTION_NAME}.resetRef`, () => resetRef(context));
-    registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, refreshChanges);
+    registerCommand(context, `${EXTENTION_NAME}.changeref`, (repoNode?: RepositoryNode) => changeRef(context, repoNode));
+    registerCommand(context, `${EXTENTION_NAME}.resetRef`, (repoNode?: RepositoryNode) => resetRef(context, repoNode));
+    registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, (repoNode?: RepositoryNode) => refreshChanges(repoNode));
     registerCommand(context, `${EXTENTION_NAME}.openChange`, (fileItem: ChangedFile) => openChangeCommand(context, fileItem));
     registerCommand(context, `${EXTENTION_NAME}.openFile`, (fileItem: ChangedFile) => openFileCommand(context, fileItem));
     registerCommand(context, `${EXTENTION_NAME}.openDirectoryChanges`, (directoryNode: any) => openDirectoryChangesCommand(context, directoryNode));
-    registerCommand(context, `${EXTENTION_NAME}.openAllChanges`, () => openAllChangesCommand(context));
+    registerCommand(context, `${EXTENTION_NAME}.openAllChanges`, (repoNode?: RepositoryNode) => openAllChangesCommand(context, repoNode));
     registerCommand(context, `${EXTENTION_NAME}.viewAsList`, () => setListMode(context));
     registerCommand(context, `${EXTENTION_NAME}.viewAsTree`, () => setTreeMode(context));
     registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenFile`, () => setDefaultActionOpenFile(context));
@@ -480,18 +480,50 @@ async function disableExtention(context: vscode.ExtensionContext) {
     }
 }
 
-async function changeRef(context: vscode.ExtensionContext) {
-    if (!firstRepository) {
+async function pickRepository(context: vscode.ExtensionContext): Promise<git.Repository | undefined> {
+    if (!currentMultiRepoProvider || currentMultiRepoProvider.size === 0) {
+        return undefined;
+    }
+
+    const repos = currentMultiRepoProvider.repositories;
+    if (repos.length === 1) {
+        return repos[0];
+    }
+
+    // Show quick pick with repo names
+    const items = repos.map(repo => ({
+        label: path.basename(repo.rootUri.fsPath),
+        description: getRawRef(context, repo),
+        repository: repo
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: l10n('prompt.pickRepository')
+    });
+
+    return selected?.repository;
+}
+
+async function changeRef(context: vscode.ExtensionContext, repoNode?: RepositoryNode) {
+    // Determine target repository
+    let repository: git.Repository | undefined;
+    if (repoNode instanceof RepositoryNode) {
+        repository = repoNode.repository;
+    } else {
+        repository = await pickRepository(context);
+    }
+
+    if (!repository) {
         return;
     }
 
     // Get raw (unsubstituted) ref value to show in input box
     // This preserves variable syntax like ${git:lastTag}
-    const currentValue = getRawRef(context, firstRepository);
+    const currentValue = getRawRef(context, repository);
 
     // Load recent refs from workspace state (per-repo)
     const allRecentRefs = context.workspaceState.get<Record<string, string[]>>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? {};
-    const recentRefs = allRecentRefs[firstRepository.rootUri.fsPath] ?? [];
+    const recentRefs = allRecentRefs[repository.rootUri.fsPath] ?? [];
 
     // Create quick pick with custom input support
     const quickPick = vscode.window.createQuickPick();
@@ -531,11 +563,11 @@ async function changeRef(context: vscode.ExtensionContext) {
     if (input !== undefined && input.trim() !== '') {
         // Save to per-repo workspace state
         const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS) ?? {};
-        refsMap[firstRepository.rootUri.fsPath] = input;
+        refsMap[repository.rootUri.fsPath] = input;
         await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, refsMap);
 
         // Update recent refs list
-        await updateRecentRefs(context, firstRepository, input);
+        await updateRecentRefs(context, repository, input);
 
         // Re-register all providers with the new ref
         if (reregisterAllProvidersFunc) {
@@ -564,15 +596,23 @@ async function updateRecentRefs(context: vscode.ExtensionContext, repository: gi
     await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, allRecentRefs);
 }
 
-async function resetRef(context: vscode.ExtensionContext) {
-    if (!firstRepository) {
+async function resetRef(context: vscode.ExtensionContext, repoNode?: RepositoryNode) {
+    // Determine target repository
+    let repository: git.Repository | undefined;
+    if (repoNode instanceof RepositoryNode) {
+        repository = repoNode.repository;
+    } else {
+        repository = await pickRepository(context);
+    }
+
+    if (!repository) {
         return;
     }
 
     // Clear per-repo ref from workspace state
     const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS);
     if (refsMap !== undefined) {
-        delete refsMap[firstRepository.rootUri.fsPath];
+        delete refsMap[repository.rootUri.fsPath];
         const hasEntries = Object.keys(refsMap).length > 0;
         await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, hasEntries ? refsMap : undefined);
     }
@@ -621,12 +661,16 @@ let gitAPI: git.API | undefined;
 // Store the reregistration function for access from commands
 let reregisterAllProvidersFunc: (() => Promise<void>) | undefined;
 
-function refreshChanges() {
+function refreshChanges(repoNode?: RepositoryNode) {
     // Clear tag cache to force fresh tag lookup
     vscodeVariables.clearTagCache();
 
     if (currentMultiRepoProvider) {
-        currentMultiRepoProvider.refresh();
+        if (repoNode instanceof RepositoryNode) {
+            currentMultiRepoProvider.refreshRepo(repoNode.repository);
+        } else {
+            currentMultiRepoProvider.refresh();
+        }
     }
 }
 
@@ -797,42 +841,91 @@ async function openDirectoryChangesCommand(context: vscode.ExtensionContext, dir
     }
 }
 
-async function openAllChangesCommand(context: vscode.ExtensionContext) {
-    if (!gitAPI || !firstRepository || !currentMultiRepoProvider) {
+async function openAllChangesCommand(context: vscode.ExtensionContext, repoNode?: RepositoryNode) {
+    if (!gitAPI || !currentMultiRepoProvider) {
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
     }
 
-    // Get all root-level items (files, directories, and repo nodes)
-    const rootItems = await currentMultiRepoProvider.getChildren();
-
-    // Collect all changed files (handles RepositoryNode, DirectoryNode, ChangedFile)
-    const getFilesRecursive = async (node: any): Promise<ChangedFile[]> => {
-        if (node instanceof ChangedFile) {
-            return [node];
-        } else if (node instanceof DirectoryNode || node instanceof RepositoryNode) {
-            const children = await currentMultiRepoProvider!.getChildren(node);
-            const files: ChangedFile[] = [];
-            for (const child of children) {
-                files.push(...await getFilesRecursive(child));
+    // If invoked from a RepositoryNode, only show that repo's changes
+    if (repoNode instanceof RepositoryNode) {
+        const children = await currentMultiRepoProvider.getChildren(repoNode);
+        const getFilesRecursive = async (node: any): Promise<ChangedFile[]> => {
+            if (node instanceof ChangedFile) {
+                return [node];
+            } else if (node instanceof DirectoryNode) {
+                const childItems = await currentMultiRepoProvider!.getChildren(node);
+                const files: ChangedFile[] = [];
+                for (const child of childItems) {
+                    files.push(...await getFilesRecursive(child));
+                }
+                return files;
             }
-            return files;
-        }
-        return [];
-    };
+            return [];
+        };
 
-    const allFiles: ChangedFile[] = [];
-    for (const item of rootItems) {
-        allFiles.push(...await getFilesRecursive(item));
+        const allFiles: ChangedFile[] = [];
+        for (const item of children) {
+            allFiles.push(...await getFilesRecursive(item));
+        }
+
+        const ref = await getCurrentRef(context, repoNode.repository);
+        const changes = buildChangesArray(allFiles, gitAPI, ref);
+        if (changes.length > 0) {
+            const repoName = path.basename(repoNode.repository.rootUri.fsPath);
+            await vscode.commands.executeCommand('vscode.changes', `${repoName}: ${ref} ↔ Working Tree`, changes);
+        }
+        return;
     }
 
-    // Build changes array for vscode.changes command
-    const ref = await getCurrentRef(context, firstRepository);
-    const changes = buildChangesArray(allFiles, gitAPI, ref);
+    // Collect changes from all repos
+    const allChanges: [vscode.Uri, vscode.Uri | undefined, vscode.Uri | undefined][] = [];
+    const titleParts: string[] = [];
 
-    // Open all changes in multi-file diff view
-    if (changes.length > 0) {
-        await vscode.commands.executeCommand('vscode.changes', `${ref} ↔ Working Tree`, changes);
+    for (const repo of currentMultiRepoProvider.repositories) {
+        const node = currentMultiRepoProvider.getNodeForRepo(repo);
+        if (!node) {
+            continue;
+        }
+
+        const children = await currentMultiRepoProvider.getChildren(node);
+        const getFilesRecursive = async (item: any): Promise<ChangedFile[]> => {
+            if (item instanceof ChangedFile) {
+                return [item];
+            } else if (item instanceof DirectoryNode) {
+                const childItems = await currentMultiRepoProvider!.getChildren(item);
+                const files: ChangedFile[] = [];
+                for (const child of childItems) {
+                    files.push(...await getFilesRecursive(child));
+                }
+                return files;
+            }
+            return [];
+        };
+
+        const files: ChangedFile[] = [];
+        for (const child of children) {
+            files.push(...await getFilesRecursive(child));
+        }
+
+        if (files.length > 0) {
+            const ref = await getCurrentRef(context, repo);
+            const changes = buildChangesArray(files, gitAPI, ref);
+            allChanges.push(...changes);
+
+            if (currentMultiRepoProvider.size > 1) {
+                titleParts.push(`${path.basename(repo.rootUri.fsPath)}: ${ref}`);
+            } else {
+                titleParts.push(ref);
+            }
+        }
+    }
+
+    if (allChanges.length > 0) {
+        const title = titleParts.length === 1
+            ? `${titleParts[0]} ↔ Working Tree`
+            : `${titleParts.join(', ')} ↔ Working Tree`;
+        await vscode.commands.executeCommand('vscode.changes', title, allChanges);
     }
 }
 

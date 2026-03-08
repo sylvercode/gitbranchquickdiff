@@ -3,6 +3,7 @@
     "error.extensionNotInitialized": "L'extension GitBranchQuickDiff n'est pas correctement initialisée",
     "prompt.setRefTitle": "référence",
     "prompt.setRefPlaceholder": "Entrez la référence git à utiliser pour la comparaison rapide (branche, tag, hash de commit, etc.)",
+    "prompt.pickRepository": "Sélectionnez un dépôt",
     "confirm.restoreFile": "Restaurer « {0} » à l'état de {1} ?",
     "confirm.restoreDirectory.single": "Restaurer 1 fichier à l'état de {0} ?",
     "confirm.restoreDirectory.multiple": "Restaurer {0} fichiers à l'état de {1} ?",
