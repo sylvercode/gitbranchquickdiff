@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [Pre-released]
 
+- New Quick Diff view in SCM panel.
+- File coloration in Explorer View, SCM changes view and Editor Tabs.
+- Gutter diff inline editor view source selector
+- Badges in Explorer View, SCM changes view and Editor Tabs.
+- Internationalization
+- Use workspace cache for current ref
 - **Multi-repository support**: Extension now works with multiple git repositories in a single workspace
   - Each repository appears as a collapsible `RepositoryNode` with its ref displayed in the description
   - Single-repo workspaces preserve the previous flat UX (no extra repository node)
@@ -23,15 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Repository picker shown when multiple repos exist
 - **Per-repo file decorations**: Each repository has its own decoration provider for independent badge/color display
 - **Workspace state migration**: Old single-repo workspace state automatically migrated to per-repo format
-
-## [Pre-released]
-
-- New Quick Diff view in SCM panel.
-- File coloration in Explorer View, SCM changes view and Editor Tabs.
-- Gutter diff inline editor view source selector
-- Badges in Explorer View, SCM changes view and Editor Tabs.
-- Internationalization
-- Use workspace cache for current ref
 
 ## [0.1.1] - 2023-04-17
 
