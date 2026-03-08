@@ -6,7 +6,7 @@ import * as vscodeVariables from './vscode-variables';
 import { getGitAPI } from './gitApi';
 import * as git from './git';
 import { Status } from './git';
-import { ChangedFile, ChangesTreeDataProvider, DirectoryNode, openChange, ExtendedStatus } from './changesTreeView';
+import { ChangedFile, ChangesTreeDataProvider, DirectoryNode, openChange, ExtendedStatus, RepositoryNode, MultiRepoTreeDataProvider } from './changesTreeView';
 import { l10n } from './l10n';
 
 const execFile = util.promisify(child_process.execFile);
@@ -16,24 +16,29 @@ export const EXTENTION_NAME = 'gitbranchquickdiff';
 const REF_CONFIG_NAME = 'ref';
 const DISPLAY_MODE_CONFIG_NAME = 'displayMode';
 const DEFAULT_ACTION_CONFIG_NAME = 'defaultAction';
-const WORKSPACE_STATE_KEY_REF = 'gitbranchquickdiff.ref';
+const SUBMODULE_DISPLAY_CONFIG_NAME = 'submoduleDisplay';
+const WORKSPACE_STATE_KEY_REF = 'gitbranchquickdiff.ref'; // Legacy key for migration
+const WORKSPACE_STATE_KEY_REFS = 'gitbranchquickdiff.refs'; // Per-repo ref map: Record<string, string>
 const WORKSPACE_STATE_KEY_ENABLED = 'gitbranchquickdiff.enabled';
 const WORKSPACE_STATE_KEY_DISPLAY_MODE = 'gitbranchquickdiff.displayMode';
 const WORKSPACE_STATE_KEY_DEFAULT_ACTION = 'gitbranchquickdiff.defaultAction';
+const WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY = 'gitbranchquickdiff.submoduleDisplay';
 const WORKSPACE_STATE_KEY_RECENT_REFS = 'gitbranchquickdiff.recentRefs';
 const DEFAULT_REF = 'main';
 const MAX_RECENT_REFS = 10;
 const DEFAULT_ENABLED = true;
 const DEFAULT_DISPLAY_MODE = 'list';
 const DEFAULT_DEFAULT_ACTION = 'openChanges';
+const DEFAULT_SUBMODULE_DISPLAY = 'standalone';
 
 // Global helper functions to access workspace state
-function getRawRef(context: vscode.ExtensionContext): string {
-    // Try global workspace state first
-    const cachedRef = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_REF);
+function getRawRef(context: vscode.ExtensionContext, repository: git.Repository): string {
+    // Try per-repo workspace state first
+    const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS);
+    const repoKey = repository.rootUri.fsPath;
 
-    if (cachedRef !== undefined) {
-        return cachedRef;
+    if (refsMap !== undefined && refsMap[repoKey] !== undefined) {
+        return refsMap[repoKey];
     }
 
     // Fall back to setting (default ref)
@@ -42,18 +47,7 @@ function getRawRef(context: vscode.ExtensionContext): string {
 }
 
 async function getCurrentRef(context: vscode.ExtensionContext, repository: git.Repository): Promise<string> {
-    // Try global workspace state first
-    const cachedRef = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_REF);
-
-    if (cachedRef !== undefined) {
-        return await vscodeVariables.variables(repository, cachedRef);
-    }
-
-    // Fall back to setting (default ref)
-    const configRef = vscode.workspace.getConfiguration(EXTENTION_NAME)
-        .get<string>(REF_CONFIG_NAME) ?? DEFAULT_REF;
-
-    return await vscodeVariables.variables(repository, configRef);
+    return await vscodeVariables.variables(repository, getRawRef(context, repository));
 }
 
 function getCurrentEnabled(context: vscode.ExtensionContext): boolean {
@@ -88,6 +82,42 @@ function getCurrentDefaultAction(context: vscode.ExtensionContext): string {
         .get<string>(DEFAULT_ACTION_CONFIG_NAME) ?? DEFAULT_DEFAULT_ACTION;
 }
 
+function getCurrentSubmoduleDisplay(context: vscode.ExtensionContext): string {
+    // Try global workspace state first
+    const cached = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY);
+
+    if (cached !== undefined) {
+        return cached;
+    }
+
+    // Fall back to setting
+    return vscode.workspace.getConfiguration(EXTENTION_NAME)
+        .get<string>(SUBMODULE_DISPLAY_CONFIG_NAME) ?? DEFAULT_SUBMODULE_DISPLAY;
+}
+
+async function migrateWorkspaceState(context: vscode.ExtensionContext, repositories: git.Repository[]) {
+    // Migrate ref: from single string to per-repo map
+    const oldRef = context.workspaceState.get<string>(WORKSPACE_STATE_KEY_REF);
+    if (oldRef !== undefined) {
+        const refsMap: Record<string, string> = {};
+        for (const repo of repositories) {
+            refsMap[repo.rootUri.fsPath] = oldRef;
+        }
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, refsMap);
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+    }
+
+    // Migrate recentRefs: from single array to per-repo map
+    const oldRecentRefs = context.workspaceState.get<unknown>(WORKSPACE_STATE_KEY_RECENT_REFS);
+    if (Array.isArray(oldRecentRefs)) {
+        const recentRefsMap: Record<string, string[]> = {};
+        for (const repo of repositories) {
+            recentRefsMap[repo.rootUri.fsPath] = [...oldRecentRefs];
+        }
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, recentRefsMap);
+    }
+}
+
 export function activate(context: vscode.ExtensionContext) {
     registerCommands(context);
     registerToGitExtention(context);
@@ -96,13 +126,14 @@ export function activate(context: vscode.ExtensionContext) {
 function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.activate`, () => enableExtention(context));
     registerCommand(context, `${EXTENTION_NAME}.deactivate`, () => disableExtention(context));
-    registerCommand(context, `${EXTENTION_NAME}.changeref`, () => changeRef(context));
-    registerCommand(context, `${EXTENTION_NAME}.resetRef`, () => resetRef(context));
-    registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, refreshChanges);
+    registerCommand(context, `${EXTENTION_NAME}.changeref`, (repoNode?: RepositoryNode) => changeRef(context, repoNode));
+    registerCommand(context, `${EXTENTION_NAME}.changerefPick`, () => changeRef(context));
+    registerCommand(context, `${EXTENTION_NAME}.resetRef`, (repoNode?: RepositoryNode) => resetRef(context, repoNode));
+    registerCommand(context, `${EXTENTION_NAME}.refreshChanges`, (repoNode?: RepositoryNode) => refreshChanges(repoNode));
     registerCommand(context, `${EXTENTION_NAME}.openChange`, (fileItem: ChangedFile) => openChangeCommand(context, fileItem));
     registerCommand(context, `${EXTENTION_NAME}.openFile`, (fileItem: ChangedFile) => openFileCommand(context, fileItem));
     registerCommand(context, `${EXTENTION_NAME}.openDirectoryChanges`, (directoryNode: any) => openDirectoryChangesCommand(context, directoryNode));
-    registerCommand(context, `${EXTENTION_NAME}.openAllChanges`, () => openAllChangesCommand(context));
+    registerCommand(context, `${EXTENTION_NAME}.openAllChanges`, (repoNode?: RepositoryNode) => openAllChangesCommand(context, repoNode));
     registerCommand(context, `${EXTENTION_NAME}.viewAsList`, () => setListMode(context));
     registerCommand(context, `${EXTENTION_NAME}.viewAsTree`, () => setTreeMode(context));
     registerCommand(context, `${EXTENTION_NAME}.setDefaultActionOpenFile`, () => setDefaultActionOpenFile(context));
@@ -110,6 +141,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     registerCommand(context, `${EXTENTION_NAME}.restoreFile`, (fileItem: ChangedFile) => restoreFileCommand(context, fileItem));
     registerCommand(context, `${EXTENTION_NAME}.restoreDirectory`, (directoryNode: any) => restoreDirectoryCommand(context, directoryNode));
     registerCommand(context, `${EXTENTION_NAME}.clearWorkspaceCache`, () => clearWorkspaceCache(context));
+    registerCommand(context, `${EXTENTION_NAME}.toggleSubmoduleDisplay`, () => toggleSubmoduleDisplay(context));
 }
 
 async function registerToGitExtention(context: vscode.ExtensionContext) {
@@ -138,6 +170,9 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     // Store git API reference for command access
     gitAPI = git;
 
+    // Migrate workspace state from global to per-repo format
+    await migrateWorkspaceState(context, git.repositories);
+
     // Register our custom content provider for historical file versions
     const contentProvider = new GitBranchQuickDiffContentProvider(context, git);
     context.subscriptions.push(
@@ -146,8 +181,34 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
     console.log(`[GitBranchQuickDiff] Registered content provider for scheme: ${QUICKDIFF_SCHEME}`);
 
     const providers = new Map<git.Repository, { provider: CustomQuickDiffProvider; disposable: vscode.Disposable }>();
-    let singleTreeDataProvider: ChangesTreeDataProvider | undefined;
-    let singleTreeView: vscode.TreeView<any> | undefined;
+
+    // Create MultiRepoTreeDataProvider and tree view (once for all repos)
+    const submoduleDisplay = getCurrentSubmoduleDisplay(context);
+    const multiRepoProvider = new MultiRepoTreeDataProvider(submoduleDisplay as 'standalone' | 'integrated');
+    currentMultiRepoProvider = multiRepoProvider;
+
+    const treeView = vscode.window.createTreeView(`${EXTENTION_NAME}.changes`, {
+        treeDataProvider: multiRepoProvider,
+        showCollapseAll: true
+    });
+    context.subscriptions.push(treeView);
+    console.log(`[GitBranchQuickDiff] Tree view created`);
+
+    // Helper to update tree view title
+    const updateTitle = async () => {
+        const isEnabled = getCurrentEnabled(context);
+        if (!isEnabled) {
+            treeView.title = `Quick Diff (deactivated)`;
+        } else {
+            const singleRepo = multiRepoProvider.singleTopLevelRepo;
+            if (singleRepo) {
+                const ref = await getCurrentRef(context, singleRepo);
+                treeView.title = `Quick Diff (${ref})`;
+            } else {
+                treeView.title = `Quick Diff`;
+            }
+        }
+    };
 
     // Helper function to re-register QuickDiffProvider
     const reregisterQuickDiffProvider = async (repository: git.Repository) => {
@@ -177,13 +238,17 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             await reregisterQuickDiffProvider(repository);
         }
 
-        // Refresh single tree view (which will update decorations)
-        if (singleTreeView && singleTreeDataProvider && firstRepository) {
-            const isEnabled = getCurrentEnabled(context);
-            const ref = await getCurrentRef(context, firstRepository);
-            singleTreeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
-            singleTreeDataProvider.refresh();
+        // Update repo node descriptions
+        for (const repo of multiRepoProvider.repositories) {
+            const node = multiRepoProvider.getNodeForRepo(repo);
+            if (node) {
+                const ref = await getCurrentRef(context, repo);
+                node.updateDescription(ref);
+            }
         }
+
+        await updateTitle();
+        multiRepoProvider.refresh();
     };
 
     // Helper function to setup HEAD change listener
@@ -192,21 +257,23 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
             console.log(`[GitBranchQuickDiff] HEAD changed for repository: ${repository.rootUri.fsPath}`);
             await reregisterQuickDiffProvider(repository);
 
-            // Refresh single tree view (which will update decorations)
-            // Only update if this is the first repository (the one shown in the tree view)
-            if (singleTreeView && singleTreeDataProvider && firstRepository === repository) {
-                const isEnabled = getCurrentEnabled(context);
+            // Update repo node description
+            const node = multiRepoProvider.getNodeForRepo(repository);
+            if (node) {
                 const ref = await getCurrentRef(context, repository);
-                singleTreeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
-                vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', isEnabled);
-                singleTreeDataProvider.refresh();
+                node.updateDescription(ref);
             }
+
+            await updateTitle();
+            vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', getCurrentEnabled(context));
+            multiRepoProvider.refreshRepo(repository);
         }));
     };
 
     const registerRepo = async (repository: git.Repository) => {
         console.log(`[GitBranchQuickDiff] Registering provider for repository: ${repository.rootUri.fsPath}`);
 
+        // Register QuickDiffProvider
         const provider = new CustomQuickDiffProvider(context, git, repository);
         await provider.updateLabel();
         const disposable = vscode.window.registerQuickDiffProvider(
@@ -220,52 +287,28 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
         context.subscriptions.push(disposable);
         console.log(`[GitBranchQuickDiff] QuickDiffProvider registered`);
 
-        // Create tree view only for the first repository
-        if (!singleTreeView) {
-            console.log(`[GitBranchQuickDiff] Creating single tree view for repository: ${repository.rootUri.fsPath}`);
+        // Create ChangesTreeDataProvider for this repo
+        const treeDataProvider = new ChangesTreeDataProvider(
+            repository,
+            () => getCurrentRef(context, repository),
+            () => getCurrentDefaultAction(context),
+            () => getCurrentEnabled(context)
+        );
+        const savedDisplayMode = getCurrentDisplayMode(context);
+        treeDataProvider.setDisplayMode(savedDisplayMode as 'list' | 'tree');
 
-            // Store first repository reference
+        // Register file decoration provider for this repo
+        console.log(`[GitBranchQuickDiff] Registering file decoration provider for: ${repository.rootUri.fsPath}`);
+        const decorationDisposable = vscode.window.registerFileDecorationProvider(treeDataProvider.decorationProvider);
+        context.subscriptions.push(decorationDisposable);
+
+        // Add to multi-repo provider (pass decoration disposable for lifecycle management)
+        const ref = await getCurrentRef(context, repository);
+        multiRepoProvider.addRepository(repository, treeDataProvider, ref, decorationDisposable);
+
+        // Store first repository reference (for commands that need a default repo)
+        if (!firstRepository) {
             firstRepository = repository;
-
-            const treeDataProvider = new ChangesTreeDataProvider(
-                repository,
-                () => getCurrentRef(context, repository),
-                () => getCurrentDefaultAction(context),
-                () => getCurrentEnabled(context)
-            );
-            // Set display mode from workspace state/configuration
-            const savedDisplayMode = getCurrentDisplayMode(context);
-            treeDataProvider.setDisplayMode(savedDisplayMode as 'list' | 'tree');
-
-            const treeView = vscode.window.createTreeView(`${EXTENTION_NAME}.changes`, {
-                treeDataProvider,
-                showCollapseAll: true
-            });
-            // Set initial title with ref
-            const isEnabled = getCurrentEnabled(context);
-            const ref = await getCurrentRef(context, repository);
-            treeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
-            context.subscriptions.push(treeView);
-            console.log(`[GitBranchQuickDiff] Tree view created`);
-
-            // Register file decoration provider for explorer and tab headers
-            console.log(`[GitBranchQuickDiff] Registering file decoration provider`);
-            const decorationDisposable = vscode.window.registerFileDecorationProvider(treeDataProvider.decorationProvider);
-            context.subscriptions.push(decorationDisposable);
-            console.log(`[GitBranchQuickDiff] File decoration provider registered`);
-
-            // Store single tree view references
-            singleTreeDataProvider = treeDataProvider;
-            singleTreeView = treeView;
-            currentTreeDataProvider = treeDataProvider;
-
-            // Set contexts
-            const displayMode = getCurrentDisplayMode(context);
-            const enabled = getCurrentEnabled(context);
-            const defaultAction = getCurrentDefaultAction(context);
-            vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', displayMode);
-            vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', enabled);
-            vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', defaultAction);
         }
     };
 
@@ -275,28 +318,65 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
         setupHeadChangeListener(repository);
     }
 
+    // Set initial title and contexts
+    await updateTitle();
+    const displayMode = getCurrentDisplayMode(context);
+    const enabled = getCurrentEnabled(context);
+    const defaultAction = getCurrentDefaultAction(context);
+    vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', displayMode);
+    vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', enabled);
+    vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', defaultAction);
+    vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.submoduleDisplay', getCurrentSubmoduleDisplay(context));
+
     // Listen for new repositories
     context.subscriptions.push(git.onDidOpenRepository(async (repository) => {
         await registerRepo(repository);
         setupHeadChangeListener(repository);
+        await updateTitle();
+    }));
+
+    // Listen for removed repositories
+    context.subscriptions.push(git.onDidCloseRepository(async (repository) => {
+        console.log(`[GitBranchQuickDiff] Repository closed: ${repository.rootUri.fsPath}`);
+
+        // Dispose and remove QuickDiffProvider
+        const existingProvider = providers.get(repository);
+        if (existingProvider) {
+            existingProvider.disposable.dispose();
+            providers.delete(repository);
+        }
+
+        // Remove from multi-repo provider (also disposes decoration provider)
+        multiRepoProvider.removeRepository(repository);
+
+        // Update firstRepository if it was the one removed
+        if (firstRepository === repository) {
+            firstRepository = multiRepoProvider.repositories[0];
+        }
+
+        await updateTitle();
     }));
 
     // Listen for config changes and re-register providers
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
         if (e.affectsConfiguration(`${EXTENTION_NAME}.${REF_CONFIG_NAME}`) ||
             e.affectsConfiguration(`${EXTENTION_NAME}.${DISPLAY_MODE_CONFIG_NAME}`) ||
-            e.affectsConfiguration(`${EXTENTION_NAME}.${DEFAULT_ACTION_CONFIG_NAME}`)) {
+            e.affectsConfiguration(`${EXTENTION_NAME}.${DEFAULT_ACTION_CONFIG_NAME}`) ||
+            e.affectsConfiguration(`${EXTENTION_NAME}.${SUBMODULE_DISPLAY_CONFIG_NAME}`)) {
             console.log(`[GitBranchQuickDiff] Configuration changed`);
 
             // Clear workspace state overrides for changed configurations
             if (e.affectsConfiguration(`${EXTENTION_NAME}.${REF_CONFIG_NAME}`)) {
-                await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+                await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, undefined);
             }
             if (e.affectsConfiguration(`${EXTENTION_NAME}.${DISPLAY_MODE_CONFIG_NAME}`)) {
                 await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
             }
             if (e.affectsConfiguration(`${EXTENTION_NAME}.${DEFAULT_ACTION_CONFIG_NAME}`)) {
                 await context.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
+            }
+            if (e.affectsConfiguration(`${EXTENTION_NAME}.${SUBMODULE_DISPLAY_CONFIG_NAME}`)) {
+                await context.workspaceState.update(WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY, undefined);
             }
 
             // Re-register all QuickDiffProviders
@@ -306,21 +386,31 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
 
             // Get global settings once
             const isEnabled = getCurrentEnabled(context);
-            const displayMode = getCurrentDisplayMode(context);
-            const defaultAction = getCurrentDefaultAction(context);
+            const cfgDisplayMode = getCurrentDisplayMode(context);
+            const cfgDefaultAction = getCurrentDefaultAction(context);
 
             // Update global contexts once
-            vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', displayMode);
+            vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', cfgDisplayMode);
             vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.enabled', isEnabled);
-            vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', defaultAction);
+            vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', cfgDefaultAction);
 
-            // Refresh single tree view (which will update decorations)
-            if (singleTreeView && singleTreeDataProvider && firstRepository) {
-                const ref = await getCurrentRef(context, firstRepository);
-                singleTreeView.title = isEnabled ? `Quick Diff (${ref})` : `Quick Diff (deactivated)`;
-                singleTreeDataProvider.setDisplayMode(displayMode as 'list' | 'tree');
-                singleTreeDataProvider.refresh();
+            // Update submodule display mode
+            const cfgSubmoduleDisplay = getCurrentSubmoduleDisplay(context);
+            vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.submoduleDisplay', cfgSubmoduleDisplay);
+            multiRepoProvider.setSubmoduleDisplay(cfgSubmoduleDisplay as 'standalone' | 'integrated');
+
+            // Update repo node descriptions
+            for (const repo of multiRepoProvider.repositories) {
+                const node = multiRepoProvider.getNodeForRepo(repo);
+                if (node) {
+                    const ref = await getCurrentRef(context, repo);
+                    node.updateDescription(ref);
+                }
             }
+
+            await updateTitle();
+            multiRepoProvider.setDisplayMode(cfgDisplayMode as 'list' | 'tree');
+            multiRepoProvider.refresh();
         }
     }));
 }
@@ -438,18 +528,55 @@ async function disableExtention(context: vscode.ExtensionContext) {
     }
 
     // Force refresh tree view to show deactivation message
-    if (currentTreeDataProvider) {
-        currentTreeDataProvider.refresh();
+    if (currentMultiRepoProvider) {
+        currentMultiRepoProvider.refresh();
     }
 }
 
-async function changeRef(context: vscode.ExtensionContext) {
+async function pickRepository(context: vscode.ExtensionContext): Promise<git.Repository | undefined> {
+    if (!currentMultiRepoProvider || currentMultiRepoProvider.size === 0) {
+        return undefined;
+    }
+
+    const repos = currentMultiRepoProvider.repositories;
+    if (repos.length === 1) {
+        return repos[0];
+    }
+
+    // Show quick pick with repo names
+    const items = repos.map(repo => ({
+        label: path.basename(repo.rootUri.fsPath),
+        description: getRawRef(context, repo),
+        repository: repo
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: l10n('prompt.pickRepository')
+    });
+
+    return selected?.repository;
+}
+
+async function changeRef(context: vscode.ExtensionContext, repoNode?: RepositoryNode) {
+    // Determine target repository
+    let repository: git.Repository | undefined;
+    if (repoNode instanceof RepositoryNode) {
+        repository = repoNode.repository;
+    } else {
+        repository = await pickRepository(context);
+    }
+
+    if (!repository) {
+        return;
+    }
+
     // Get raw (unsubstituted) ref value to show in input box
     // This preserves variable syntax like ${git:lastTag}
-    const currentValue = getRawRef(context);
+    const currentValue = getRawRef(context, repository);
 
-    // Load recent refs from workspace state
-    const recentRefs = context.workspaceState.get<string[]>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? [];
+    // Load recent refs from workspace state (per-repo)
+    const allRecentRefs = context.workspaceState.get<Record<string, string[]>>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? {};
+    const recentRefs = allRecentRefs[repository.rootUri.fsPath] ?? [];
 
     // Create quick pick with custom input support
     const quickPick = vscode.window.createQuickPick();
@@ -487,11 +614,13 @@ async function changeRef(context: vscode.ExtensionContext) {
     });
 
     if (input !== undefined && input.trim() !== '') {
-        // Save to global workspace state
-        await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, input);
+        // Save to per-repo workspace state
+        const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS) ?? {};
+        refsMap[repository.rootUri.fsPath] = input;
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, refsMap);
 
         // Update recent refs list
-        await updateRecentRefs(context, input);
+        await updateRecentRefs(context, repository, input);
 
         // Re-register all providers with the new ref
         if (reregisterAllProvidersFunc) {
@@ -500,9 +629,11 @@ async function changeRef(context: vscode.ExtensionContext) {
     }
 }
 
-async function updateRecentRefs(context: vscode.ExtensionContext, ref: string) {
-    // Load current recent refs
-    const recentRefs = context.workspaceState.get<string[]>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? [];
+async function updateRecentRefs(context: vscode.ExtensionContext, repository: git.Repository, ref: string) {
+    // Load current recent refs (per-repo)
+    const allRecentRefs = context.workspaceState.get<Record<string, string[]>>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? {};
+    const repoKey = repository.rootUri.fsPath;
+    const recentRefs = allRecentRefs[repoKey] ?? [];
 
     // Remove ref if it already exists to avoid duplicates
     const filtered = recentRefs.filter(r => r !== ref);
@@ -514,12 +645,30 @@ async function updateRecentRefs(context: vscode.ExtensionContext, ref: string) {
     const updated = filtered.slice(0, MAX_RECENT_REFS);
 
     // Save back to workspace state
-    await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, updated);
+    allRecentRefs[repoKey] = updated;
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, allRecentRefs);
 }
 
-async function resetRef(context: vscode.ExtensionContext) {
-    // Clear global workspace state
-    await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+async function resetRef(context: vscode.ExtensionContext, repoNode?: RepositoryNode) {
+    // Determine target repository
+    let repository: git.Repository | undefined;
+    if (repoNode instanceof RepositoryNode) {
+        repository = repoNode.repository;
+    } else {
+        repository = await pickRepository(context);
+    }
+
+    if (!repository) {
+        return;
+    }
+
+    // Clear per-repo ref from workspace state
+    const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS);
+    if (refsMap !== undefined) {
+        delete refsMap[repository.rootUri.fsPath];
+        const hasEntries = Object.keys(refsMap).length > 0;
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, hasEntries ? refsMap : undefined);
+    }
 
     // Re-register all providers to use the default setting
     if (reregisterAllProvidersFunc) {
@@ -542,10 +691,12 @@ async function clearWorkspaceCache(context: vscode.ExtensionContext) {
     }
 
     // Clear all global workspace state
-    await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_REF, undefined); // Clear legacy key
     await context.workspaceState.update(WORKSPACE_STATE_KEY_ENABLED, undefined);
     await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, undefined);
     await context.workspaceState.update(WORKSPACE_STATE_KEY_DEFAULT_ACTION, undefined);
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY, undefined);
     await context.workspaceState.update(WORKSPACE_STATE_KEY_RECENT_REFS, undefined);
 
     // Re-register all providers to use the default settings
@@ -556,20 +707,40 @@ async function clearWorkspaceCache(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage('GitBranchQuickDiff workspace cache cleared. All settings reset to defaults.');
 }
 
+async function toggleSubmoduleDisplay(context: vscode.ExtensionContext) {
+    const current = getCurrentSubmoduleDisplay(context);
+    const newMode = current === 'standalone' ? 'integrated' : 'standalone';
+
+    await context.workspaceState.update(WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY, newMode);
+    vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.submoduleDisplay', newMode);
+
+    if (currentMultiRepoProvider) {
+        currentMultiRepoProvider.setSubmoduleDisplay(newMode);
+    }
+
+    if (reregisterAllProvidersFunc) {
+        await reregisterAllProvidersFunc();
+    }
+}
+
 // Global references to store current tree view and repositories for command access
-let currentTreeDataProvider: ChangesTreeDataProvider | undefined;
+let currentMultiRepoProvider: MultiRepoTreeDataProvider | undefined;
 let firstRepository: git.Repository | undefined;
 let gitAPI: git.API | undefined;
 
 // Store the reregistration function for access from commands
 let reregisterAllProvidersFunc: (() => Promise<void>) | undefined;
 
-function refreshChanges() {
+function refreshChanges(repoNode?: RepositoryNode) {
     // Clear tag cache to force fresh tag lookup
     vscodeVariables.clearTagCache();
 
-    if (currentTreeDataProvider) {
-        currentTreeDataProvider.refresh();
+    if (currentMultiRepoProvider) {
+        if (repoNode instanceof RepositoryNode) {
+            currentMultiRepoProvider.refreshRepo(repoNode.repository);
+        } else {
+            currentMultiRepoProvider.refresh();
+        }
     }
 }
 
@@ -705,14 +876,13 @@ async function openDirectoryChangesCommand(context: vscode.ExtensionContext, dir
     for (const repository of gitAPI.repositories) {
         if (directoryNode.resourceUri.path.startsWith(repository.rootUri.path)) {
             // Get all files in this directory from the tree data provider
-            if (!currentTreeDataProvider) {
+            if (!currentMultiRepoProvider) {
                 return;
             }
-            const treeDataProvider = currentTreeDataProvider;
 
             // Get children of this directory (recursive to get all files)
             const getFilesRecursive = async (node: any): Promise<ChangedFile[]> => {
-                const children = await treeDataProvider.getChildren(node);
+                const children = await currentMultiRepoProvider!.getChildren(node);
                 const files: ChangedFile[] = [];
                 for (const child of children) {
                     if (child instanceof DirectoryNode) {
@@ -741,44 +911,91 @@ async function openDirectoryChangesCommand(context: vscode.ExtensionContext, dir
     }
 }
 
-async function openAllChangesCommand(context: vscode.ExtensionContext) {
-    if (!gitAPI || !firstRepository || !currentTreeDataProvider) {
+async function openAllChangesCommand(context: vscode.ExtensionContext, repoNode?: RepositoryNode) {
+    if (!gitAPI || !currentMultiRepoProvider) {
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
     }
 
-    const treeDataProvider = currentTreeDataProvider;
-
-    // Get all root-level items (files and directories)
-    const rootItems = await treeDataProvider.getChildren();
-
-    // Collect all changed files
-    const getFilesRecursive = async (node: any): Promise<ChangedFile[]> => {
-        if (node instanceof ChangedFile) {
-            return [node];
-        } else if (node instanceof DirectoryNode) {
-            const children = await treeDataProvider.getChildren(node);
-            const files: ChangedFile[] = [];
-            for (const child of children) {
-                files.push(...await getFilesRecursive(child));
+    // If invoked from a RepositoryNode, only show that repo's changes
+    if (repoNode instanceof RepositoryNode) {
+        const children = await currentMultiRepoProvider.getChildren(repoNode);
+        const getFilesRecursive = async (node: any): Promise<ChangedFile[]> => {
+            if (node instanceof ChangedFile) {
+                return [node];
+            } else if (node instanceof DirectoryNode) {
+                const childItems = await currentMultiRepoProvider!.getChildren(node);
+                const files: ChangedFile[] = [];
+                for (const child of childItems) {
+                    files.push(...await getFilesRecursive(child));
+                }
+                return files;
             }
-            return files;
-        }
-        return [];
-    };
+            return [];
+        };
 
-    const allFiles: ChangedFile[] = [];
-    for (const item of rootItems) {
-        allFiles.push(...await getFilesRecursive(item));
+        const allFiles: ChangedFile[] = [];
+        for (const item of children) {
+            allFiles.push(...await getFilesRecursive(item));
+        }
+
+        const ref = await getCurrentRef(context, repoNode.repository);
+        const changes = buildChangesArray(allFiles, gitAPI, ref);
+        if (changes.length > 0) {
+            const repoName = path.basename(repoNode.repository.rootUri.fsPath);
+            await vscode.commands.executeCommand('vscode.changes', `${repoName}: ${ref} ↔ Working Tree`, changes);
+        }
+        return;
     }
 
-    // Build changes array for vscode.changes command
-    const ref = await getCurrentRef(context, firstRepository);
-    const changes = buildChangesArray(allFiles, gitAPI, ref);
+    // Collect changes from all repos
+    const allChanges: [vscode.Uri, vscode.Uri | undefined, vscode.Uri | undefined][] = [];
+    const titleParts: string[] = [];
 
-    // Open all changes in multi-file diff view
-    if (changes.length > 0) {
-        await vscode.commands.executeCommand('vscode.changes', `${ref} ↔ Working Tree`, changes);
+    for (const repo of currentMultiRepoProvider.repositories) {
+        const node = currentMultiRepoProvider.getNodeForRepo(repo);
+        if (!node) {
+            continue;
+        }
+
+        const children = await currentMultiRepoProvider.getChildren(node);
+        const getFilesRecursive = async (item: any): Promise<ChangedFile[]> => {
+            if (item instanceof ChangedFile) {
+                return [item];
+            } else if (item instanceof DirectoryNode) {
+                const childItems = await currentMultiRepoProvider!.getChildren(item);
+                const files: ChangedFile[] = [];
+                for (const child of childItems) {
+                    files.push(...await getFilesRecursive(child));
+                }
+                return files;
+            }
+            return [];
+        };
+
+        const files: ChangedFile[] = [];
+        for (const child of children) {
+            files.push(...await getFilesRecursive(child));
+        }
+
+        if (files.length > 0) {
+            const ref = await getCurrentRef(context, repo);
+            const changes = buildChangesArray(files, gitAPI, ref);
+            allChanges.push(...changes);
+
+            if (currentMultiRepoProvider.size > 1) {
+                titleParts.push(`${path.basename(repo.rootUri.fsPath)}: ${ref}`);
+            } else {
+                titleParts.push(ref);
+            }
+        }
+    }
+
+    if (allChanges.length > 0) {
+        const title = titleParts.length === 1
+            ? `${titleParts[0]} ↔ Working Tree`
+            : `${titleParts.join(', ')} ↔ Working Tree`;
+        await vscode.commands.executeCommand('vscode.changes', title, allChanges);
     }
 }
 
@@ -879,8 +1096,8 @@ async function restoreFileCommand(context: vscode.ExtensionContext, fileItem: Ch
                     }
 
                     // Refresh the tree view
-                    if (currentTreeDataProvider) {
-                        currentTreeDataProvider.refresh();
+                    if (currentMultiRepoProvider) {
+                        currentMultiRepoProvider.refresh();
                     }
 
                     vscode.window.showInformationMessage(l10n('info.restoredFile', fileName, ref));
@@ -913,14 +1130,13 @@ async function restoreDirectoryCommand(context: vscode.ExtensionContext, directo
     for (const repository of gitAPI.repositories) {
         if (directoryNode.resourceUri.path.startsWith(repository.rootUri.path)) {
             // Get all files in this directory from the tree data provider
-            if (!currentTreeDataProvider) {
+            if (!currentMultiRepoProvider) {
                 return;
             }
-            const treeDataProvider = currentTreeDataProvider;
 
             // Get children of this directory (recursive to get all files)
             const getFilesRecursive = async (node: any): Promise<ChangedFile[]> => {
-                const children = await treeDataProvider.getChildren(node);
+                const children = await currentMultiRepoProvider!.getChildren(node);
                 const files: ChangedFile[] = [];
                 for (const child of children) {
                     if (child instanceof DirectoryNode) {
@@ -1042,8 +1258,8 @@ async function restoreDirectoryCommand(context: vscode.ExtensionContext, directo
                 }
 
                 // Refresh the tree view
-                if (currentTreeDataProvider) {
-                    currentTreeDataProvider.refresh();
+                if (currentMultiRepoProvider) {
+                    currentMultiRepoProvider.refresh();
                 }
 
                 if (failCount === 0) {
@@ -1067,8 +1283,8 @@ async function setListMode(context: vscode.ExtensionContext) {
     await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, 'list');
 
     // Update tree data provider
-    if (currentTreeDataProvider) {
-        currentTreeDataProvider.setDisplayMode('list');
+    if (currentMultiRepoProvider) {
+        currentMultiRepoProvider.setDisplayMode('list');
     }
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', 'list');
 }
@@ -1078,8 +1294,8 @@ async function setTreeMode(context: vscode.ExtensionContext) {
     await context.workspaceState.update(WORKSPACE_STATE_KEY_DISPLAY_MODE, 'tree');
 
     // Update tree data provider
-    if (currentTreeDataProvider) {
-        currentTreeDataProvider.setDisplayMode('tree');
+    if (currentMultiRepoProvider) {
+        currentMultiRepoProvider.setDisplayMode('tree');
     }
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.displayMode', 'tree');
 }
@@ -1092,8 +1308,8 @@ async function setDefaultActionOpenFile(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', 'openFile');
 
     // Refresh tree data provider
-    if (currentTreeDataProvider) {
-        currentTreeDataProvider.refresh();
+    if (currentMultiRepoProvider) {
+        currentMultiRepoProvider.refresh();
     }
 }
 
@@ -1105,7 +1321,7 @@ async function setDefaultActionOpenChanges(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.defaultAction', 'openChanges');
 
     // Refresh tree data provider
-    if (currentTreeDataProvider) {
-        currentTreeDataProvider.refresh();
+    if (currentMultiRepoProvider) {
+        currentMultiRepoProvider.refresh();
     }
 }

@@ -15,6 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Badges in Explorer View, SCM changes view and Editor Tabs.
 - Internationalization
 - Use workspace cache for current ref
+- **Multi-repository support**: Extension now works with multiple git repositories in a single workspace
+  - Each repository appears as a collapsible `RepositoryNode` with its ref displayed in the description
+  - Single-repo workspaces preserve the previous flat UX (no extra repository node)
+  - Per-repo ref and recent refs stored independently
+  - Dynamic handling of repositories added/removed at runtime
+- **Submodule display modes**: New `gitbranchquickdiff.submoduleDisplay` setting
+  - `standalone` (default): All repos shown at top level
+  - `integrated`: Submodule repos nested under their parent repository
+  - Toggle via "Toggle Submodule Display" command in the view menu
+- **Repository-scoped commands**: `Set quick diff ref`, `Refresh`, and `Open All Changes` can target individual repos
+  - Inline icons on repository nodes for quick access
+  - Repository picker shown when multiple repos exist
+- **Per-repo file decorations**: Each repository has its own decoration provider for independent badge/color display
+- **Workspace state migration**: Old single-repo workspace state automatically migrated to per-repo format
 
 ## [0.1.1] - 2023-04-17
 

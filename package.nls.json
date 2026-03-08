@@ -5,6 +5,7 @@
     "configuration.displayMode.description": "Default display mode for the changes view: list or tree.",
     "configuration.defaultAction.description": "Default action when clicking on a changed file: open diff (openChanges) or open file directly (openFile).",
     "configuration.tagCacheTTL.description": "Cache duration in minutes for git tag lookups. Set to 0 to disable time-based cache invalidation (cache only clears on HEAD changes or manual refresh). Default is 1 minute.",
+    "configuration.submoduleDisplay.description": "How to display git submodule repositories: standalone (at top level) or integrated (nested under parent repository).",
     "views.changes.name": "Quick Diff",
     "views.changes.contextualTitle": "Quick Diff Changes",
     "command.activate.title": "Activate GitBranchQuickDiff",
@@ -21,5 +22,6 @@
     "command.setDefaultActionOpenFile.title": "Open File by Default",
     "command.setDefaultActionOpenChanges.title": "Open Changes by Default",
     "command.restoreFile.title": "Restore to Ref State",
-    "command.restoreDirectory.title": "Restore to Ref State"
+    "command.restoreDirectory.title": "Restore to Ref State",
+    "command.toggleSubmoduleDisplay.title": "Toggle Submodule Display"
 }

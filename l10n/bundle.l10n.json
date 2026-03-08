@@ -3,6 +3,7 @@
     "error.extensionNotInitialized": "GitBranchQuickDiff extension is not properly initialized",
     "prompt.setRefTitle": "ref",
     "prompt.setRefPlaceholder": "Enter the git reference to use for quick diff (branch, tag, commit hash, etc.)",
+    "prompt.pickRepository": "Select a repository",
     "confirm.restoreFile": "Restore \"{0}\" to the state of {1}?",
     "confirm.restoreDirectory.single": "Restore 1 file to the state of {0}?",
     "confirm.restoreDirectory.multiple": "Restore {0} files to the state of {1}?",
@@ -31,5 +32,6 @@
     "status.bothDeleted": "Both Deleted",
     "status.bothModified": "Both Modified",
     "status.restored": "Restored",
-    "status.unknown": "Unknown"
+    "status.unknown": "Unknown",
+    "message.noRepositories": "No git repositories found in this workspace."
 }
