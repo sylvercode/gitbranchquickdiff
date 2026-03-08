@@ -1323,18 +1323,50 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
         return [...dirLike, ...rest];
     }
 
+    /** Returns the single top-level repo when only one is visible, or undefined if multiple are shown */
+    get singleTopLevelRepo(): Repository | undefined {
+        const topLevel = this._getTopLevelRepos();
+        return topLevel.length === 1 ? topLevel[0] : undefined;
+    }
+
     async getChildren(element?: RepositoryNode | ChangedFile | DirectoryNode | MessageItem): Promise<(RepositoryNode | ChangedFile | DirectoryNode | MessageItem)[]> {
         if (!element) {
             if (this._repos.size === 0) {
                 return [new MessageItem(l10n('message.noRepositories'))];
             }
             const topLevel = this._getTopLevelRepos();
-            if (topLevel.length === 1 && this._repos.size === 1) {
-                // Single repo (no submodules at all): delegate directly (skip repo node)
-                const entry = this._repos.get(topLevel[0])!;
-                return entry.provider.getChildren();
+            if (topLevel.length === 1) {
+                // Single top-level repo: show its content directly (skip repo node)
+                const repo = topLevel[0];
+                const entry = this._repos.get(repo)!;
+                const children = await entry.provider.getChildren();
+                // In integrated mode, also inject submodule nodes
+                if (this._submoduleDisplay === 'integrated') {
+                    const subRepos = this._parentToChildren.get(repo);
+                    if (subRepos && subRepos.length > 0) {
+                        if (entry.provider.displayMode === DisplayMode.List) {
+                            const allSubNodes = subRepos
+                                .map(r => this._repos.get(r)?.node)
+                                .filter((n): n is RepositoryNode => n !== undefined)
+                                .sort((a, b) => {
+                                    const labelA = typeof a.label === 'string' ? a.label : '';
+                                    const labelB = typeof b.label === 'string' ? b.label : '';
+                                    return labelA.localeCompare(labelB);
+                                });
+                            if (allSubNodes.length > 0) {
+                                return [...children, ...allSubNodes];
+                            }
+                        } else {
+                            const subNodes = this._getSubmodulesAtLevel(repo, '');
+                            if (subNodes.length > 0) {
+                                return this._mergeWithSubmodules(children, subNodes);
+                            }
+                        }
+                    }
+                }
+                return children;
             }
-            // Multiple repos or has submodules: return repo nodes
+            // Multiple top-level repos: return repo nodes
             return topLevel.map(r => this._repos.get(r)!.node);
         }
 

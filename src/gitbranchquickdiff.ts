@@ -198,12 +198,14 @@ async function registerProvider(context: vscode.ExtensionContext, git: git.API) 
         const isEnabled = getCurrentEnabled(context);
         if (!isEnabled) {
             treeView.title = `Quick Diff (deactivated)`;
-        } else if (multiRepoProvider.size === 1) {
-            const repo = multiRepoProvider.repositories[0];
-            const ref = await getCurrentRef(context, repo);
-            treeView.title = `Quick Diff (${ref})`;
         } else {
-            treeView.title = `Quick Diff`;
+            const singleRepo = multiRepoProvider.singleTopLevelRepo;
+            if (singleRepo) {
+                const ref = await getCurrentRef(context, singleRepo);
+                treeView.title = `Quick Diff (${ref})`;
+            } else {
+                treeView.title = `Quick Diff`;
+            }
         }
     };
 
@@ -713,6 +715,10 @@ async function toggleSubmoduleDisplay(context: vscode.ExtensionContext) {
 
     if (currentMultiRepoProvider) {
         currentMultiRepoProvider.setSubmoduleDisplay(newMode);
+    }
+
+    if (reregisterAllProvidersFunc) {
+        await reregisterAllProvidersFunc();
     }
 }
 
