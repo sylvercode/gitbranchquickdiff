@@ -9,7 +9,7 @@
 
 ### Session 2026-03-23
 
-- Q: How deep should the subfolder hierarchy be under `src/`? → A: Shallow — one level of subfolders (e.g., `src/commands/`, `src/providers/`, `src/views/`, `src/utils/`)
+- Q: How deep should the subfolder hierarchy be under `src/`? → A: Shallow — one level of subfolders (e.g., `src/commands/`, `src/quickdiff/`, `src/views/`, `src/utils/`)
 - Q: Where should cross-cutting concerns (localization, status mapping, logging) be placed? → A: In a dedicated `src/utils/` shared subfolder
 - Q: Should `extension.ts` remain the sole activation entry point or should bootstrapping be distributed? → A: Single entry point — `extension.ts` delegates to extracted domain modules
 - Q: Should very small extractions (~50 lines or fewer) get their own file or be grouped? → A: Pragmatic threshold — extractions under ~50 lines may be grouped with a closely related module in the same domain folder
@@ -73,7 +73,7 @@ As a project owner, I want refactor outcomes to be specific, measurable, achieva
 
 - **FR-001**: The project MUST split oversized mixed-responsibility source files into smaller modules where each module has one primary responsibility. Extractions under approximately 50 lines may be grouped with a closely related module in the same domain folder rather than requiring a standalone file.
 - **FR-002**: The project MUST define and apply explicit responsibility boundaries for command handling, quick diff behavior, tree view composition, state management, and git interaction concerns.
-- **FR-003**: The source structure MUST be reorganized into a shallow (one-level) hierarchy of clearly named subfolders directly under the source root (e.g., `commands/`, `providers/`, `views/`, `utils/`) to reflect feature areas and shared concerns. No deeper nesting is required.
+- **FR-003**: The source structure MUST be reorganized into a shallow (one-level) hierarchy of clearly named subfolders directly under the source root (e.g., `commands/`, `quickdiff/`, `views/`, `utils/`) to reflect feature areas and shared concerns. No deeper nesting is required.
 - **FR-004**: Existing user-visible behavior MUST remain functionally equivalent after refactoring and file movement.
 - **FR-005**: The refactor MUST preserve command registration coverage so all previously available commands remain discoverable and executable. `extension.ts` MUST remain the single activation entry point, delegating to domain modules for command, provider, and state setup.
 - **FR-006**: The refactor MUST preserve support for multi-repository workflows, including repository selection, provider registration, and refresh behavior.
