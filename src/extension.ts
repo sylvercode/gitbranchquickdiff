@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
-import * as gbqdController from './gitbranchquickdiff';
-import { initLocalization } from './l10n';
+import { registerCommands } from './commands';
+import { registerProvider } from './quickdiff';
+import { initLocalization } from './utils';
 
 export function activate(context: vscode.ExtensionContext) {
 	initLocalization(context);
-	gbqdController.activate(context);
+	registerCommands(context);
+	registerProvider(context);
 }
 
 // This method is called when your extension is deactivated

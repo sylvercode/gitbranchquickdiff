@@ -319,7 +319,7 @@ export interface RemoteSource {
 
 export interface RemoteSourceProvider {
     readonly name: string;
-    readonly icon?: string; // codicon name
+    readonly icon?: string;
     readonly supportsQuery?: boolean;
     getRemoteSources(query?: string): ProviderResult<RemoteSource[]>;
     getBranches?(url: string): ProviderResult<string[]>;
@@ -328,7 +328,7 @@ export interface RemoteSourceProvider {
 
 export interface RemoteSourcePublisher {
     readonly name: string;
-    readonly icon?: string; // codicon name
+    readonly icon?: string;
     publishRepository(repository: Repository): Promise<void>;
 }
 
@@ -402,11 +402,6 @@ export interface API {
     getRepositoryRoot(uri: Uri): Promise<Uri | null>;
     getRepositoryWorkspace(uri: Uri): Promise<Uri[] | null>;
     init(root: Uri, options?: InitOptions): Promise<Repository | null>;
-    /**
-     * Checks the cache of known cloned repositories, and clones if the repository is not found.
-     * Make sure to pass `postCloneAction` 'none' if you want to have the uri where you can find the repository returned.
-     * @returns The URI of a folder or workspace file which, when opened, will open the cloned repository.
-     */
     clone(uri: Uri, options?: CloneOptions): Promise<Uri | null>;
     openRepository(root: Uri): Promise<Repository | null>;
 

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { API, GitExtension, Repository } from './git';
+import { API, GitExtension, Repository } from '../externals/git';
 
 export async function getGitAPI(): Promise<API | undefined> {
     try {
@@ -11,6 +11,7 @@ export async function getGitAPI(): Promise<API | undefined> {
     } catch (error) {
         console.error('Failed to get git API:', error);
     }
+
     return undefined;
 }
 
@@ -27,6 +28,5 @@ export async function getGitRepository(workspaceUri?: vscode.Uri): Promise<Repos
         }
     }
 
-    // Return first repository if available
     return gitAPI.repositories.length > 0 ? gitAPI.repositories[0] : undefined;
 }
