@@ -11,10 +11,10 @@
 
 **Purpose**: Create the target folder and module surface needed for the refactor.
 
-- [ ] T001 Create target source folders `src/commands/`, `src/quickdiff/`, `src/views/`, `src/utils/`, and `src/externals/`
-- [ ] T002 Create barrel files `src/commands/index.ts`, `src/quickdiff/index.ts`, `src/views/index.ts`, and `src/utils/index.ts`
-- [ ] T003 Move external type definitions from `src/git.d.ts` and `src/vscode.proposed.quickDiffProvider.d.ts` to `src/externals/git.d.ts` and `src/externals/vscode.proposed.quickDiffProvider.d.ts` without content changes
-- [ ] T004 Update type import paths in `src/gitbranchquickdiff.ts`, `src/changesTreeView.ts`, and `src/vscode-variables.ts` to reference `src/externals/` after T003 completes
+- [x] T001 Create target source folders `src/commands/`, `src/quickdiff/`, `src/views/`, `src/utils/`, and `src/externals/`
+- [x] T002 Create barrel files `src/commands/index.ts`, `src/quickdiff/index.ts`, `src/views/index.ts`, and `src/utils/index.ts`
+- [x] T003 Move external type definitions from `src/git.d.ts` and `src/vscode.proposed.quickDiffProvider.d.ts` to `src/externals/git.d.ts` and `src/externals/vscode.proposed.quickDiffProvider.d.ts` without content changes
+- [x] T004 Update type import paths in `src/gitbranchquickdiff.ts`, `src/changesTreeView.ts`, and `src/vscode-variables.ts` to reference `src/externals/` after T003 completes
 
 ---
 
@@ -24,13 +24,13 @@
 
 **CRITICAL**: Complete this phase before starting user story phases.
 
-- [ ] T005 Extract localization helpers into `src/utils/l10n.ts` from `src/l10n.ts`
-- [ ] T006 Extract Git extension API wrapper into `src/utils/gitApi.ts` from `src/gitApi.ts`
-- [ ] T007 Extract VS Code variable substitution logic into `src/utils/vscodeVariables.ts` from `src/vscode-variables.ts`
-- [ ] T008 Extract status mapping helpers into `src/utils/statusHelpers.ts` from `src/changesTreeView.ts`
-- [ ] T009 Extract workspace state constants/getters/migration into `src/utils/workspaceState.ts` from `src/gitbranchquickdiff.ts`
-- [ ] T010 Update and finalize utility exports in `src/utils/index.ts` for all shared utility APIs
-- [ ] T011 Update utility imports in `src/gitbranchquickdiff.ts` and `src/changesTreeView.ts` to consume `src/utils/index.ts`
+- [x] T005 Extract localization helpers into `src/utils/l10n.ts` from `src/l10n.ts`
+- [x] T006 Extract Git extension API wrapper into `src/utils/gitApi.ts` from `src/gitApi.ts`
+- [x] T007 Extract VS Code variable substitution logic into `src/utils/vscodeVariables.ts` from `src/vscode-variables.ts`
+- [x] T008 Extract status mapping helpers into `src/utils/statusHelpers.ts` from `src/changesTreeView.ts`
+- [x] T009 Extract workspace state constants/getters/migration into `src/utils/workspaceState.ts` from `src/gitbranchquickdiff.ts`
+- [x] T010 Update and finalize utility exports in `src/utils/index.ts` for all shared utility APIs
+- [x] T011 Update utility imports in `src/gitbranchquickdiff.ts` and `src/changesTreeView.ts` to consume `src/utils/index.ts`
 
 **Checkpoint**: Shared utilities are stable and importable from a single utility barrel.
 
@@ -44,20 +44,20 @@
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] Extract tree node classes (`RepositoryNode`, `DirectoryNode`, `ChangedFile`, `MessageItem`) into `src/views/nodes.ts`
-- [ ] T013 [P] [US1] Extract tree building and compact-folder logic into `src/views/treeBuilder.ts`
-- [ ] T014 [P] [US1] Extract `ChangesDecorationProvider` into `src/views/decorationProvider.ts`
-- [ ] T015 [US1] Extract `ChangesTreeDataProvider` and `openChange` into `src/views/changesTreeDataProvider.ts`
-- [ ] T016 [US1] Extract `MultiRepoTreeDataProvider` into `src/views/multiRepoTreeDataProvider.ts`
-- [ ] T017 [US1] Finalize public view exports in `src/views/index.ts`
-- [ ] T018 [P] [US1] Extract `CustomQuickDiffProvider` into `src/quickdiff/quickDiffProvider.ts`
-- [ ] T019 [P] [US1] Extract `GitBranchQuickDiffContentProvider` and `QUICKDIFF_SCHEME` into `src/quickdiff/contentProvider.ts`
-- [ ] T020 [US1] Extract provider lifecycle orchestration into `src/quickdiff/providerRegistration.ts`
-- [ ] T021 [US1] Finalize public quickdiff exports in `src/quickdiff/index.ts`
-- [ ] T022 [US1] Split command logic into `src/commands/refCommands.ts`, `src/commands/viewCommands.ts`, `src/commands/openCommands.ts`, and `src/commands/restoreCommands.ts`
-- [ ] T023 [US1] Implement command wiring in `src/commands/registerCommands.ts`
-- [ ] T024 [US1] Finalize public command exports in `src/commands/index.ts`
-- [ ] T025 [US1] Replace remaining mixed-responsibility logic in `src/gitbranchquickdiff.ts` and `src/changesTreeView.ts` with extracted modules, migrate all imports, and delete both legacy files once `npm run compile` passes without them
+- [x] T012 [P] [US1] Extract tree node classes (`RepositoryNode`, `DirectoryNode`, `ChangedFile`, `MessageItem`) into `src/views/nodes.ts`
+- [x] T013 [P] [US1] Extract tree building and compact-folder logic into `src/views/treeBuilder.ts`
+- [x] T014 [P] [US1] Extract `ChangesDecorationProvider` into `src/views/decorationProvider.ts`
+- [x] T015 [US1] Extract `ChangesTreeDataProvider` and `openChange` into `src/views/changesTreeDataProvider.ts`
+- [x] T016 [US1] Extract `MultiRepoTreeDataProvider` into `src/views/multiRepoTreeDataProvider.ts`
+- [x] T017 [US1] Finalize public view exports in `src/views/index.ts`
+- [x] T018 [P] [US1] Extract `CustomQuickDiffProvider` into `src/quickdiff/quickDiffProvider.ts`
+- [x] T019 [P] [US1] Extract `GitBranchQuickDiffContentProvider` and `QUICKDIFF_SCHEME` into `src/quickdiff/contentProvider.ts`
+- [x] T020 [US1] Extract provider lifecycle orchestration into `src/quickdiff/providerRegistration.ts`
+- [x] T021 [US1] Finalize public quickdiff exports in `src/quickdiff/index.ts`
+- [x] T022 [US1] Split command logic into `src/commands/refCommands.ts`, `src/commands/viewCommands.ts`, `src/commands/openCommands.ts`, and `src/commands/restoreCommands.ts`
+- [x] T023 [US1] Implement command wiring in `src/commands/registerCommands.ts`
+- [x] T024 [US1] Finalize public command exports in `src/commands/index.ts`
+- [x] T025 [US1] Replace remaining mixed-responsibility logic in `src/gitbranchquickdiff.ts` and `src/changesTreeView.ts` with extracted modules, migrate all imports, and delete both legacy files once `npm run compile` passes without them
 
 **Checkpoint**: User Story 1 is complete when the two oversized files no longer own unrelated concerns.
 
@@ -71,13 +71,13 @@
 
 ### Implementation for User Story 2
 
-- [ ] T026 [US2] Update activation flow in `src/extension.ts` to keep single entry-point delegation through `src/commands/index.ts` and `src/quickdiff/index.ts`
-- [ ] T027 [P] [US2] Convert imports in `src/commands/*.ts` to consume folder barrels (`src/views/index.ts`, `src/utils/index.ts`, `src/quickdiff/index.ts`) where applicable
-- [ ] T028 [P] [US2] Convert imports in `src/quickdiff/*.ts` and `src/views/*.ts` to consume folder barrels (`src/utils/index.ts`, `src/views/index.ts`) where applicable
-- [ ] T029 [US2] Remove obsolete root utility files `src/l10n.ts`, `src/gitApi.ts`, and `src/vscode-variables.ts` after migration to `src/utils/`
-- [ ] T030 [US2] Verify multi-repository and submodule behavior wiring in `src/quickdiff/providerRegistration.ts` and `src/views/multiRepoTreeDataProvider.ts` after file moves
-- [ ] T031 [US2] Resolve compile-time import and type issues across `src/**/*.ts` using `npm run compile`
-- [ ] T032 [US2] Verify folder dependency direction across `src/utils/`, `src/views/`, `src/quickdiff/`, and `src/commands/` so no circular imports violate the documented architecture
+- [x] T026 [US2] Update activation flow in `src/extension.ts` to keep single entry-point delegation through `src/commands/index.ts` and `src/quickdiff/index.ts`
+- [x] T027 [P] [US2] Convert imports in `src/commands/*.ts` to consume folder barrels (`src/views/index.ts`, `src/utils/index.ts`, `src/quickdiff/index.ts`) where applicable
+- [x] T028 [P] [US2] Convert imports in `src/quickdiff/*.ts` and `src/views/*.ts` to consume folder barrels (`src/utils/index.ts`, `src/views/index.ts`) where applicable
+- [x] T029 [US2] Remove obsolete root utility files `src/l10n.ts`, `src/gitApi.ts`, and `src/vscode-variables.ts` after migration to `src/utils/`
+- [x] T030 [US2] Verify multi-repository and submodule behavior wiring in `src/quickdiff/providerRegistration.ts` and `src/views/multiRepoTreeDataProvider.ts` after file moves
+- [x] T031 [US2] Resolve compile-time import and type issues across `src/**/*.ts` using `npm run compile`
+- [x] T032 [US2] Verify folder dependency direction across `src/utils/`, `src/views/`, `src/quickdiff/`, and `src/commands/` so no circular imports violate the documented architecture
 
 **Checkpoint**: User Story 2 is complete when all runtime code is organized under domain folders and compiles cleanly.
 
@@ -91,11 +91,11 @@
 
 ### Implementation for User Story 3
 
-- [ ] T033 [US3] Add SMART objective-to-evidence traceability section in `specs/001-smart-code-refactor/spec.md` for SC-001 through SC-005, including explicit measurement notes for SC-001 and SC-004
-- [ ] T034 [US3] Update `specs/001-smart-code-refactor/contracts/module-contracts.md` so barrel import examples use folder barrels consistently and reflect the final public API boundaries
-- [ ] T035 [US3] Update module ownership guidance, target structure details, and navigation examples in `docs/architecture.md` to match extracted modules and use consistent responsibility domain terminology
-- [ ] T036 [US3] Add a post-refactor behavioral parity evidence checklist to `specs/001-smart-code-refactor/quickstart.md`, including timed ownership-locatability checks and cache/debounce verification
-- [ ] T037 [US3] Update `.specify/memory/constitution.md` to reflect `src/externals/git.d.ts` and `src/externals/vscode.proposed.quickDiffProvider.d.ts` after the type definition move
+- [x] T033 [US3] Add SMART objective-to-evidence traceability section in `specs/001-smart-code-refactor/spec.md` for SC-001 through SC-005, including explicit measurement notes for SC-001 and SC-004
+- [x] T034 [US3] Update `specs/001-smart-code-refactor/contracts/module-contracts.md` so barrel import examples use folder barrels consistently and reflect the final public API boundaries
+- [x] T035 [US3] Update module ownership guidance, target structure details, and navigation examples in `docs/architecture.md` to match extracted modules and use consistent responsibility domain terminology
+- [x] T036 [US3] Add a post-refactor behavioral parity evidence checklist to `specs/001-smart-code-refactor/quickstart.md`, including timed ownership-locatability checks and cache/debounce verification
+- [x] T037 [US3] Update `.specify/memory/constitution.md` to reflect `src/externals/git.d.ts` and `src/externals/vscode.proposed.quickDiffProvider.d.ts` after the type definition move
 
 **Checkpoint**: User Story 3 is complete when SMART outcomes are documented with verifiable evidence paths.
 
@@ -105,10 +105,10 @@
 
 **Purpose**: Final quality pass, validation, and cleanup across all stories.
 
-- [ ] T038 [P] Remove dead exports and stale references from `src/commands/index.ts`, `src/quickdiff/index.ts`, `src/views/index.ts`, and `src/utils/index.ts`
-- [ ] T039 Record line-count evidence for `src/gitbranchquickdiff.ts` and `src/changesTreeView.ts` versus their replacement modules to validate SC-001 in `specs/001-smart-code-refactor/quickstart.md`
-- [ ] T040 Run the manual verification checklist in `specs/001-smart-code-refactor/quickstart.md`, including timed ownership checks for SC-004 and behavior parity validation for SC-003, and record the results
-- [ ] T041 Run final compile validation with `npm run compile` and address remaining TypeScript issues in `src/**/*.ts`
+- [x] T038 [P] Remove dead exports and stale references from `src/commands/index.ts`, `src/quickdiff/index.ts`, `src/views/index.ts`, and `src/utils/index.ts`
+- [x] T039 Record line-count evidence for `src/gitbranchquickdiff.ts` and `src/changesTreeView.ts` versus their replacement modules to validate SC-001 in `specs/001-smart-code-refactor/quickstart.md`
+- [x] T040 Run the manual verification checklist in `specs/001-smart-code-refactor/quickstart.md`, including timed ownership checks for SC-004 and behavior parity validation for SC-003, and record the results
+- [x] T041 Run final compile validation with `npm run compile` and address remaining TypeScript issues in `src/**/*.ts`
 
 ---
 

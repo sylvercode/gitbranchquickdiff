@@ -115,9 +115,9 @@ All user-facing strings MUST go through the l10n system:
 - **Architecture Documentation**: `docs/architecture.md` MUST be
   kept current with any structural changes
 - **External Type Definitions**:
-  - `src/git.d.ts` — VS Code built-in Git extension types
+  - `src/externals/git.d.ts` — VS Code built-in Git extension types
     (MUST NOT be modified)
-  - `src/vscode.proposed.quickDiffProvider.d.ts` — Proposed API
+  - `src/externals/vscode.proposed.quickDiffProvider.d.ts` — Proposed API
     types (update only when targeting a new VS Code version)
 
 ## Development Workflow

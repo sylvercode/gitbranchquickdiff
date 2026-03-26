@@ -105,3 +105,13 @@ As a project owner, I want refactor outcomes to be specific, measurable, achieva
 - **SC-003**: 100% of previously available extension commands remain executable in manual verification after refactor.
 - **SC-004**: Maintainers can locate the owning module for key behaviors (command registration, quick diff source resolution, tree node composition, and state persistence) in under 2 minutes per behavior during review.
 - **SC-005**: Post-refactor maintainability review confirms all defined SMART objectives have measurable evidence and no unresolved ownership ambiguity for core behaviors.
+
+## SMART Objective Traceability
+
+| Success Criterion | Objective | Evidence path | Measurement note |
+|---|---|---|---|
+| SC-001 | Reduce oversized mixed-responsibility files into focused modules. | `specs/001-smart-code-refactor/quickstart.md` line-count evidence table, `docs/architecture.md` responsibility domains, `src/commands/`, `src/quickdiff/`, `src/views/`, `src/utils/` | Measure each original file against its replacement modules. The largest replacement for `gitbranchquickdiff.ts` and `changesTreeView.ts` must remain below 40% of the original line count unless explicitly justified. |
+| SC-002 | Move runtime source into named responsibility domains under `src/`. | `docs/architecture.md` source layout, `src/commands/`, `src/quickdiff/`, `src/views/`, `src/utils/`, `src/externals/` | Count runtime source files under `src/` and confirm that the large majority reside inside a named domain folder rather than the root. |
+| SC-003 | Preserve behavior and command availability after the refactor. | `specs/001-smart-code-refactor/quickstart.md` manual verification checklist, `src/commands/registerCommands.ts`, `package.json` command contributions | Command parity is verified by matching command registrations to the existing contribution surface and by running the manual verification checklist. |
+| SC-004 | Make ownership of key behaviors quickly locatable. | `docs/architecture.md` navigation examples, `specs/001-smart-code-refactor/quickstart.md` timed ownership-locatability checklist | Time four lookup tasks: command registration, quick diff source resolution, tree node composition, and workspace-state persistence. Each lookup must complete in under 2 minutes. |
+| SC-005 | Produce a reviewable and auditable maintainability outcome. | `docs/architecture.md`, `specs/001-smart-code-refactor/contracts/module-contracts.md`, `specs/001-smart-code-refactor/quickstart.md` | Reviewers should be able to map a core behavior to one owning module and one evidence path without subjective interpretation. |

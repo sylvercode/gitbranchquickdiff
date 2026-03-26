@@ -10,10 +10,7 @@ This project is a VS Code extension. Its external interface contracts are define
 ## commands/index.ts
 
 ```typescript
-// Command registration — called from extension.ts
 export { registerCommands } from './registerCommands';
-
-// Individual command functions — used by providerRegistration for wiring
 export { changeRef, resetRef } from './refCommands';
 export { refreshChanges, openChangeCommand, openFileCommand, openDirectoryChangesCommand, openAllChangesCommand } from './openCommands';
 export { restoreFileCommand, restoreDirectoryCommand } from './restoreCommands';
@@ -25,49 +22,50 @@ export { enableExtention, disableExtention, setListMode, setTreeMode, setDefault
 ```typescript
 export { CustomQuickDiffProvider } from './quickDiffProvider';
 export { GitBranchQuickDiffContentProvider, QUICKDIFF_SCHEME } from './contentProvider';
-export { registerProvider } from './providerRegistration';
+export { registerProvider, getCurrentMultiRepoProvider, getRegisteredGitApi, reregisterAllProviders } from './providerRegistration';
 ```
 
 ## views/index.ts
 
 ```typescript
-// Node types
 export { RepositoryNode, DirectoryNode, ChangedFile, MessageItem } from './nodes';
-
-// Enums
 export { ExtendedStatus, DisplayMode } from '../utils/statusHelpers';
-
-// Tree data providers
 export { ChangesTreeDataProvider } from './changesTreeDataProvider';
 export { MultiRepoTreeDataProvider } from './multiRepoTreeDataProvider';
-
-// Decoration
 export { ChangesDecorationProvider } from './decorationProvider';
-
-// Tree building
 export { buildTree } from './treeBuilder';
-
-// View-action function
 export { openChange } from './changesTreeDataProvider';
 ```
 
 ## utils/index.ts
 
 ```typescript
-// Localization
 export { initLocalization, l10n } from './l10n';
-
-// Git API access
 export { getGitAPI, getGitRepository } from './gitApi';
-
-// Variable substitution
 export { variables as vscodeVariables, clearTagCache } from './vscodeVariables';
-
-// Status utilities
 export { ExtendedStatus, DisplayMode, toExtendedStatus, getStatusText, getStatusColor, getStatusTooltip, DIFF_BADGE_SUFFIX } from './statusHelpers';
-
-// Workspace state
-export { EXTENTION_NAME, getRawRef, getCurrentRef, getCurrentEnabled, getCurrentDisplayMode, getCurrentDefaultAction, getCurrentSubmoduleDisplay, migrateWorkspaceState } from './workspaceState';
+export {
+    EXTENTION_NAME,
+    getRawRef,
+    getCurrentRef,
+    getCurrentEnabled,
+    getCurrentDisplayMode,
+    getCurrentDefaultAction,
+    getCurrentSubmoduleDisplay,
+    migrateWorkspaceState,
+    REF_CONFIG_NAME,
+    DISPLAY_MODE_CONFIG_NAME,
+    DEFAULT_ACTION_CONFIG_NAME,
+    SUBMODULE_DISPLAY_CONFIG_NAME,
+    WORKSPACE_STATE_KEY_REF,
+    WORKSPACE_STATE_KEY_REFS,
+    WORKSPACE_STATE_KEY_ENABLED,
+    WORKSPACE_STATE_KEY_DISPLAY_MODE,
+    WORKSPACE_STATE_KEY_DEFAULT_ACTION,
+    WORKSPACE_STATE_KEY_SUBMODULE_DISPLAY,
+    WORKSPACE_STATE_KEY_RECENT_REFS,
+    MAX_RECENT_REFS
+} from './workspaceState';
 ```
 
 ## Dependency Direction Contract
@@ -86,7 +84,7 @@ commands/       ← May import from utils/, views/, and quickdiff/
 extension.ts    ← May import from any subfolder
 ```
 
-`externals/` contains only `.d.ts` type definitions. It has no barrel `index.ts`. Any module may import types from it.
+`externals/` contains only `.d.ts` type definitions. It has no barrel `index.ts`. Any module may import types from it using folder-relative paths such as `../externals/git`.
 
 ## External Contract Preservation
 

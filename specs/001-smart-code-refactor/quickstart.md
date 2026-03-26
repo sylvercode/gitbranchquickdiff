@@ -39,6 +39,50 @@ After restructuring, verify in the VS Code Extension Development Host:
 11. **Submodule toggle** — toggle submodule display between standalone and integrated
 12. **Enable/Disable** — deactivate and reactivate the extension; tree view shows appropriate message
 
+## Post-Refactor Evidence Checklist
+
+### Line-count Evidence for SC-001
+
+| Original file | Original lines | Replacement modules reviewed | Largest replacement | Largest replacement ratio | Status |
+|---|---:|---|---:|---:|---|
+| `src/gitbranchquickdiff.ts` | 1327 | `src/commands/*.ts`, `src/quickdiff/*.ts`, `src/utils/workspaceState.ts` | `src/quickdiff/providerRegistration.ts` at 246 lines | 18.5% | PASS |
+| `src/changesTreeView.ts` | 1446 | `src/views/*.ts`, `src/utils/statusHelpers.ts` | `src/views/changesTreeDataProvider.ts` at 450 lines | 31.1% | PASS |
+
+### Ownership-Locatability Timing for SC-004
+
+Use a timer and confirm each lookup completes in under 2 minutes:
+
+- Command registration: `src/commands/registerCommands.ts`
+- Quick diff source resolution: `src/quickdiff/quickDiffProvider.ts`
+- Tree node composition: `src/views/nodes.ts`
+- Workspace-state persistence: `src/utils/workspaceState.ts`
+
+Record result:
+
+| Behavior | Target | Result | Notes |
+|---|---:|---|---|
+| Command registration | < 2 min | Not run | Requires timed maintainer walkthrough |
+| Quick diff source resolution | < 2 min | Not run | Requires timed maintainer walkthrough |
+| Tree node composition | < 2 min | Not run | Requires timed maintainer walkthrough |
+| Workspace-state persistence | < 2 min | Not run | Requires timed maintainer walkthrough |
+
+### Behavioral Parity Checklist
+
+- [x] `ChangesTreeDataProvider` keeps separate `diffBetween` and `diffWith` caches
+- [x] `ChangesTreeDataProvider.refresh()` preserves the 100ms debounce
+- [x] `providerRegistration.ts` still re-registers QuickDiff providers on HEAD changes
+- [x] `providerRegistration.ts` still handles repository open/close lifecycle events
+- [x] `MultiRepoTreeDataProvider` still supports `standalone` and `integrated` submodule display modes
+- [ ] Extension Development Host checklist executed end-to-end
+
+### Validation Log
+
+| Validation item | Result | Evidence |
+|---|---|---|
+| TypeScript compile | PASS | `npm run compile` completed on 2026-03-24 |
+| Static cache/debounce verification | PASS | `src/views/changesTreeDataProvider.ts` preserves dual-cache + 100ms debounce |
+| Manual Extension Host verification | NOT RUN | Requires VS Code Extension Development Host execution |
+
 ## Source Navigation Guide
 
 After refactor, the source is organized as:
