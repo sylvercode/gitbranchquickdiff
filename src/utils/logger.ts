@@ -68,6 +68,17 @@ function log(level: TraceLevel, message: string, ...args: unknown[]): void {
     getChannel().appendLine(formatted);
 }
 
+/**
+ * Logger for the GitBranchQuickDiff extension.
+ * Output is written to the "GitBranchQuickDiff" output channel in VS Code.
+ * The trace level is controlled by the `gitbranchquickdiff.traceLevel` setting.
+ *
+ * - `error`: Critical failures that prevent normal operation
+ * - `warn`: Unexpected situations that are handled gracefully
+ * - `info`: High-level operations (activation, configuration changes, repository events)
+ * - `debug`: Detailed operational information (command execution, cache state)
+ * - `trace`: Very detailed information (variable substitution, file-level operations)
+ */
 export const logger = {
     error: (message: string, ...args: unknown[]) => log(TraceLevel.Error, message, ...args),
     warn: (message: string, ...args: unknown[]) => log(TraceLevel.Warn, message, ...args),
