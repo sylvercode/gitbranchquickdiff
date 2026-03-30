@@ -107,7 +107,7 @@ async function processVariables(gitRepo: Repository, str: string, recursive = fa
                         logger.debug('Git describe result:', lastTag);
                     } catch (error: any) {
                         if (error.code !== 128) {
-                            logger.warn(`git describe failed: ${error.message}`);
+                            logger.error('git describe failed:', error);
                         }
                     }
 
