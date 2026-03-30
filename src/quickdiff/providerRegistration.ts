@@ -83,7 +83,7 @@ async function initializeProviders(context: vscode.ExtensionContext, git: API) {
     const multiRepoProvider = new MultiRepoTreeDataProvider(submoduleDisplay as 'standalone' | 'integrated');
     currentMultiRepoProvider = multiRepoProvider;
 
-    const treeView = vscode.window.createTreeView(`${EXTENTION_NAME}.changes`, {
+    const treeView = vscode.window.createTreeView(`${EXTENTION_NAME}.changesView`, {
         treeDataProvider: multiRepoProvider,
         showCollapseAll: true
     });
