@@ -19,6 +19,8 @@ export {
     DEFAULT_SUBMODULE_DISPLAY,
     DISPLAY_MODE_CONFIG_NAME,
     EXTENSION_NAME as EXTENTION_NAME,
+    clearRepoRef,
+    getConfigDefaultRef,
     getCurrentDefaultAction,
     getCurrentDisplayMode,
     getCurrentEnabled,

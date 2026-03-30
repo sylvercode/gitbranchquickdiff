@@ -34,5 +34,6 @@
     "status.restored": "Restored",
     "status.unknown": "Unknown",
     "message.noRepositories": "No git repositories found in this workspace.",
-    "label.settingDefault": "setting default"
+    "label.settingDefault": "setting default",
+    "label.current": "current"
 }

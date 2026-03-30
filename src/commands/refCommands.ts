@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Repository } from '../externals/git';
 import { getCurrentMultiRepoProvider, reregisterAllProviders } from '../quickdiff';
-import { DEFAULT_REF, EXTENTION_NAME, getRawRef, l10n, logger, MAX_RECENT_REFS, REF_CONFIG_NAME, WORKSPACE_STATE_KEY_RECENT_REFS, WORKSPACE_STATE_KEY_REFS } from '../utils';
+import { clearRepoRef, getConfigDefaultRef, getRawRef, l10n, logger, MAX_RECENT_REFS, WORKSPACE_STATE_KEY_RECENT_REFS, WORKSPACE_STATE_KEY_REFS } from '../utils';
 import { RepositoryNode } from '../views';
 
 async function pickRepository(context: vscode.ExtensionContext): Promise<Repository | undefined> {
@@ -36,15 +36,16 @@ export async function changeRef(context: vscode.ExtensionContext, repoNode?: Rep
     }
 
     const currentValue = getRawRef(context, repository);
-    const configDefault = vscode.workspace.getConfiguration(EXTENTION_NAME).get<string>(REF_CONFIG_NAME) ?? DEFAULT_REF;
+    const configDefault = getConfigDefaultRef();
     const allRecentRefs = context.workspaceState.get<Record<string, string[]>>(WORKSPACE_STATE_KEY_RECENT_REFS) ?? {};
     const recentRefs = allRecentRefs[repository.rootUri.fsPath] ?? [];
 
+    const currentLabel = l10n('label.current');
     const settingDefaultDescription = l10n('label.settingDefault');
     const settingDefaultItem: vscode.QuickPickItem = {
         label: configDefault,
         description: configDefault === currentValue
-            ? `${settingDefaultDescription} (current)`
+            ? `${settingDefaultDescription} (${currentLabel})`
             : settingDefaultDescription
     };
 
@@ -52,7 +53,7 @@ export async function changeRef(context: vscode.ExtensionContext, repoNode?: Rep
         .filter(ref => ref !== configDefault)
         .map(ref => ({
             label: ref,
-            description: ref === currentValue ? '(current)' : undefined
+            description: ref === currentValue ? `(${currentLabel})` : undefined
         }));
 
     const quickPick = vscode.window.createQuickPick();
@@ -83,11 +84,7 @@ export async function changeRef(context: vscode.ExtensionContext, repoNode?: Rep
     if (input !== undefined && input.trim() !== '') {
         if (selectedSettingDefault) {
             logger.info('Resetting ref for repository:', path.basename(repository.rootUri.fsPath));
-            const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS);
-            if (refsMap !== undefined) {
-                delete refsMap[repository.rootUri.fsPath];
-                await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, Object.keys(refsMap).length > 0 ? refsMap : undefined);
-            }
+            await clearRepoRef(context, repository);
         } else {
             logger.info('Changing ref for repository', path.basename(repository.rootUri.fsPath), 'to:', input);
             const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS) ?? {};
@@ -117,11 +114,7 @@ export async function resetRef(context: vscode.ExtensionContext, repoNode?: Repo
     }
 
     logger.info('Resetting ref for repository:', path.basename(repository.rootUri.fsPath));
-    const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS);
-    if (refsMap !== undefined) {
-        delete refsMap[repository.rootUri.fsPath];
-        await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, Object.keys(refsMap).length > 0 ? refsMap : undefined);
-    }
+    await clearRepoRef(context, repository);
 
     await reregisterAllProviders();
     vscode.window.showInformationMessage(l10n('info.refResetToDefault'));
