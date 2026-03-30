@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { API, Repository } from '../externals/git';
-import { EXTENTION_NAME, getCurrentEnabled, getCurrentRef } from '../utils';
+import { EXTENTION_NAME, getCurrentEnabled, getCurrentRef, logger } from '../utils';
 import { QUICKDIFF_SCHEME } from './contentProvider';
 
 export class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
@@ -20,6 +20,7 @@ export class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
 
     async updateLabel() {
         this._label = await getCurrentRef(this.context, this.repository);
+        logger.trace('QuickDiff label updated to:', this._label);
     }
 
     async provideOriginalResource(uri: vscode.Uri): Promise<vscode.Uri | undefined> {
@@ -33,6 +34,7 @@ export class CustomQuickDiffProvider implements vscode.QuickDiffProvider {
         }
 
         const ref = await getCurrentRef(this.context, this.repository);
+        logger.trace('Providing original resource for:', uri.fsPath, 'at ref:', ref);
         return uri.with({
             scheme: QUICKDIFF_SCHEME,
             query: JSON.stringify({ uri: uri.toString(), ref })

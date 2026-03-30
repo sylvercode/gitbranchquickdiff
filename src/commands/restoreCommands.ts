@@ -4,12 +4,13 @@ import * as util from 'util';
 import * as vscode from 'vscode';
 import { getCurrentMultiRepoProvider, getRegisteredGitApi } from '../quickdiff';
 import { QUICKDIFF_SCHEME } from '../quickdiff';
-import { ExtendedStatus, getCurrentRef, l10n } from '../utils';
+import { ExtendedStatus, getCurrentRef, l10n, logger } from '../utils';
 import { ChangedFile, DirectoryNode } from '../views';
 
 const execFile = util.promisify(child_process.execFile);
 
 export async function restoreFileCommand(context: vscode.ExtensionContext, fileItem: ChangedFile) {
+    logger.debug('Restoring file:', fileItem.resourceUri.fsPath);
     const gitAPI = getRegisteredGitApi();
     if (!gitAPI) {
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
@@ -90,6 +91,7 @@ export async function restoreFileCommand(context: vscode.ExtensionContext, fileI
                     vscode.window.showInformationMessage(l10n('info.restoredFile', fileName, ref));
                 } catch (error) {
                     vscode.window.showErrorMessage(l10n('error.restoreFailed', String(error)));
+                    logger.error('Failed to restore file:', fileItem.resourceUri.fsPath, error);
                 }
             }
             return;
@@ -98,6 +100,7 @@ export async function restoreFileCommand(context: vscode.ExtensionContext, fileI
 }
 
 export async function restoreDirectoryCommand(context: vscode.ExtensionContext, directoryNode: unknown) {
+    logger.debug('Restoring directory');
     const gitAPI = getRegisteredGitApi();
     const currentMultiRepoProvider = getCurrentMultiRepoProvider();
     if (!gitAPI || !currentMultiRepoProvider || !(directoryNode instanceof DirectoryNode) || !directoryNode.resourceUri) {
@@ -201,7 +204,7 @@ export async function restoreDirectoryCommand(context: vscode.ExtensionContext, 
 
                     successCount++;
                 } catch (error) {
-                    console.error(`Failed to restore ${file.resourceUri.fsPath}:`, error);
+                    logger.error(`Failed to restore ${file.resourceUri.fsPath}:`, error);
                     failCount++;
                 }
             }

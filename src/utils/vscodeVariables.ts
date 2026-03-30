@@ -4,6 +4,7 @@ import * as process from 'process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { Repository } from '../externals/git';
+import { logger } from './logger';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,6 +16,7 @@ function getCacheTTL(): number {
 }
 
 export function variables(gitRepo: Repository, str: string, recursive = false) {
+    logger.trace('Variable substitution started for:', str);
     return processVariables(gitRepo, str, recursive);
 }
 
@@ -95,22 +97,24 @@ async function processVariables(gitRepo: Repository, str: string, recursive = fa
                             args.push(`--match=${pattern}`);
                         }
 
+                        logger.debug('Running git describe with args:', args.join(' '));
                         const { stdout } = await execFileAsync('git', args, {
                             cwd: gitRepo.rootUri.fsPath,
                             timeout: 5000
                         });
 
                         lastTag = stdout.trim();
+                        logger.debug('Git describe result:', lastTag);
                     } catch (error: any) {
                         if (error.code !== 128) {
-                            console.warn(`git describe failed: ${error.message}`);
+                            logger.error('git describe failed:', error);
                         }
                     }
 
                     lastTagCache.set(cacheKey, { tag: lastTag, headCommit: currentHeadCommit, timestamp: now });
                 }
             } catch (error) {
-                console.error('Failed to get last tag:', error);
+                logger.error('Failed to get last tag:', error);
             }
         }
 
@@ -139,7 +143,7 @@ async function processVariables(gitRepo: Repository, str: string, recursive = fa
                 }
             }
         } catch (error) {
-            console.error('Failed to get push branch:', error);
+            logger.error('Failed to get push branch:', error);
         }
     }
     str = str.replace(/\${git:push}/g, pushBranch);
@@ -148,5 +152,6 @@ async function processVariables(gitRepo: Repository, str: string, recursive = fa
         str = await processVariables(gitRepo, str, recursive);
     }
 
+    logger.trace('Variable substitution result:', str);
     return str;
 }

@@ -7,6 +7,7 @@ import {
     getStatusColor,
     getStatusText,
     l10n,
+    logger,
     toExtendedStatus
 } from '../utils';
 import { ChangesDecorationProvider } from './decorationProvider';
@@ -56,6 +57,7 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
         }
 
         this._refreshTimeout = setTimeout(() => {
+            logger.trace('Refreshing changes tree for repository:', this.repository.rootUri.fsPath);
             this._cachedDiffBetween = undefined;
             this._cachedDiffWith = undefined;
             this._onDidChangeTreeData.fire();
@@ -70,9 +72,11 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
     async getChangedFiles(): Promise<ChangedFile[] | null> {
         const ref = await this.getRef();
         if (!ref) {
+            logger.debug('No ref available, returning null');
             return null;
         }
 
+        logger.debug('Getting changed files for ref:', ref);
         try {
             const currentHeadCommit = this.repository.state.HEAD?.commit;
             const currentIndexCount = this.repository.state.indexChanges.length;
@@ -86,8 +90,10 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
 
             if (diffBetweenCacheValid) {
                 diffChanges = this._cachedDiffBetween!.changes;
+                logger.trace('Using cached diffBetween result');
             } else {
                 diffChanges = await this.repository.diffBetween(ref, 'HEAD');
+                logger.trace('Fetched fresh diffBetween, changes:', diffChanges.length);
                 this._cachedDiffBetween = {
                     changes: diffChanges,
                     ref,
@@ -104,8 +110,10 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
 
             if (diffWithCacheValid) {
                 diffWithWorkingTree = this._cachedDiffWith!.changes;
+                logger.trace('Using cached diffWith result');
             } else {
                 diffWithWorkingTree = await this.repository.diffWith(ref);
+                logger.trace('Fetched fresh diffWith, changes:', diffWithWorkingTree.length);
                 this._cachedDiffWith = {
                     changes: diffWithWorkingTree,
                     ref,
@@ -346,9 +354,10 @@ export class ChangesTreeDataProvider implements vscode.TreeDataProvider<ChangedF
                     }))
             );
 
+            logger.debug('Changed files found:', changedFiles.length);
             return changedFiles;
         } catch (error) {
-            console.error('Failed to get changes:', error);
+            logger.error('Failed to get changes:', error);
             this._decorationProvider.setChanges([]);
             return null;
         }
