@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Repository } from '../externals/git';
-import { DisplayMode, l10n } from '../utils';
+import { DisplayMode, l10n, logger } from '../utils';
 import { ChangesTreeDataProvider } from './changesTreeDataProvider';
 import { ChangedFile, DirectoryNode, MessageItem, RepositoryNode } from './nodes';
 
@@ -19,6 +19,7 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
     }
 
     addRepository(repo: Repository, provider: ChangesTreeDataProvider, ref: string, decorationDisposable?: vscode.Disposable): RepositoryNode {
+        logger.debug('Adding repository:', repo.rootUri.fsPath, 'with ref:', ref);
         const node = new RepositoryNode(repo, provider, ref);
         const listenerDisposable = provider.onDidChangeTreeData(() => {
             if (this._getTopLevelRepos().length === 1) {
@@ -39,6 +40,7 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
     }
 
     removeRepository(repo: Repository): void {
+        logger.debug('Removing repository:', repo.rootUri.fsPath);
         const entry = this._repos.get(repo);
         if (!entry) {
             return;
@@ -125,6 +127,7 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
     }
 
     setSubmoduleDisplay(mode: 'standalone' | 'integrated'): void {
+        logger.debug('Setting submodule display mode:', mode);
         this._submoduleDisplay = mode;
         this._rebuildSubmoduleMap();
         this._onDidChangeTreeData.fire();
@@ -141,6 +144,7 @@ export class MultiRepoTreeDataProvider implements vscode.TreeDataProvider<Reposi
     }
 
     setDisplayMode(mode: 'list' | 'tree'): void {
+        logger.debug('Setting display mode:', mode);
         for (const entry of this._repos.values()) {
             entry.provider.setDisplayMode(mode);
         }

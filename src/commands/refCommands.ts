@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Repository } from '../externals/git';
 import { getCurrentMultiRepoProvider, reregisterAllProviders } from '../quickdiff';
-import { EXTENTION_NAME, getRawRef, l10n, MAX_RECENT_REFS, WORKSPACE_STATE_KEY_RECENT_REFS, WORKSPACE_STATE_KEY_REFS } from '../utils';
+import { getRawRef, l10n, logger, MAX_RECENT_REFS, WORKSPACE_STATE_KEY_RECENT_REFS, WORKSPACE_STATE_KEY_REFS } from '../utils';
 import { RepositoryNode } from '../views';
 
 async function pickRepository(context: vscode.ExtensionContext): Promise<Repository | undefined> {
@@ -63,6 +63,7 @@ export async function changeRef(context: vscode.ExtensionContext, repoNode?: Rep
     });
 
     if (input !== undefined && input.trim() !== '') {
+        logger.info('Changing ref for repository', path.basename(repository.rootUri.fsPath), 'to:', input);
         const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS) ?? {};
         refsMap[repository.rootUri.fsPath] = input;
         await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, refsMap);
@@ -88,6 +89,7 @@ export async function resetRef(context: vscode.ExtensionContext, repoNode?: Repo
         return;
     }
 
+    logger.info('Resetting ref for repository:', path.basename(repository.rootUri.fsPath));
     const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS);
     if (refsMap !== undefined) {
         delete refsMap[repository.rootUri.fsPath];

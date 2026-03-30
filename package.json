@@ -61,6 +61,19 @@
           ],
           "default": "standalone",
           "description": "%configuration.submoduleDisplay.description%"
+        },
+        "gitbranchquickdiff.traceLevel": {
+          "type": "string",
+          "enum": [
+            "off",
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "default": "off",
+          "description": "%configuration.traceLevel.description%"
         }
       }
     },

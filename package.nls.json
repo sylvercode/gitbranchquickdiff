@@ -6,6 +6,7 @@
     "configuration.defaultAction.description": "Default action when clicking on a changed file: open diff (openChanges) or open file directly (openFile).",
     "configuration.tagCacheTTL.description": "Cache duration in minutes for git tag lookups. Set to 0 to disable time-based cache invalidation (cache only clears on HEAD changes or manual refresh). Default is 1 minute.",
     "configuration.submoduleDisplay.description": "How to display git submodule repositories: standalone (at top level) or integrated (nested under parent repository).",
+    "configuration.traceLevel.description": "Trace level for debug output in the GitBranchQuickDiff output channel. Set to 'off' to disable tracing.",
     "views.changes.name": "Quick Diff",
     "views.changes.contextualTitle": "Quick Diff Changes",
     "command.activate.title": "Activate GitBranchQuickDiff",

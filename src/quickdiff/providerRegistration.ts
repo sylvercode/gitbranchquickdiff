@@ -12,6 +12,7 @@ import {
     getCurrentSubmoduleDisplay,
     getGitAPI,
     l10n,
+    logger,
     migrateWorkspaceState,
     REF_CONFIG_NAME,
     SUBMODULE_DISPLAY_CONFIG_NAME,
@@ -48,17 +49,21 @@ export function registerProvider(context: vscode.ExtensionContext): void {
 async function registerToGitExtension(context: vscode.ExtensionContext) {
     const git = await getGitAPI();
     if (!git) {
+        logger.error('Git extension not found');
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
         return;
     }
 
     if (git.state === 'initialized') {
+        logger.info('Git extension already initialized, setting up providers');
         await initializeProviders(context, git);
         return;
     }
 
+    logger.debug('Waiting for git extension to initialize');
     const disposable = git.onDidChangeState((state: string) => {
         if (state === 'initialized') {
+            logger.info('Git extension initialized, setting up providers');
             void initializeProviders(context, git);
             disposable.dispose();
         }
@@ -66,6 +71,7 @@ async function registerToGitExtension(context: vscode.ExtensionContext) {
 }
 
 async function initializeProviders(context: vscode.ExtensionContext, git: API) {
+    logger.info('Initializing providers for', git.repositories.length, 'repositories');
     currentGitApi = git;
     await migrateWorkspaceState(context, git.repositories);
 
@@ -144,6 +150,7 @@ async function initializeProviders(context: vscode.ExtensionContext, git: API) {
     };
 
     const registerRepo = async (repository: Repository) => {
+        logger.debug('Registering repository:', repository.rootUri.fsPath);
         const provider = new CustomQuickDiffProvider(context, git, repository);
         await provider.updateLabel();
         const disposable = vscode.window.registerQuickDiffProvider(
@@ -181,12 +188,14 @@ async function initializeProviders(context: vscode.ExtensionContext, git: API) {
     void vscode.commands.executeCommand('setContext', 'gitbranchquickdiff.submoduleDisplay', getCurrentSubmoduleDisplay(context));
 
     context.subscriptions.push(git.onDidOpenRepository(async repository => {
+        logger.info('New repository opened:', repository.rootUri.fsPath);
         await registerRepo(repository);
         setupHeadChangeListener(repository);
         await updateTitle();
     }));
 
     context.subscriptions.push(git.onDidCloseRepository(async repository => {
+        logger.info('Repository closed:', repository.rootUri.fsPath);
         const existingProvider = providers.get(repository);
         if (existingProvider) {
             existingProvider.disposable.dispose();
@@ -204,6 +213,8 @@ async function initializeProviders(context: vscode.ExtensionContext, git: API) {
             !event.affectsConfiguration(`${EXTENTION_NAME}.${SUBMODULE_DISPLAY_CONFIG_NAME}`)) {
             return;
         }
+
+        logger.debug('Configuration changed, updating providers');
 
         if (event.affectsConfiguration(`${EXTENTION_NAME}.${REF_CONFIG_NAME}`)) {
             await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, undefined);

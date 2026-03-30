@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { DIFF_BADGE_SUFFIX, ExtendedStatus, getStatusTooltip } from '../utils';
+import { DIFF_BADGE_SUFFIX, ExtendedStatus, getStatusTooltip, logger } from '../utils';
 
 interface ChangeInfo {
     uri: vscode.Uri;
@@ -46,6 +46,7 @@ export class ChangesDecorationProvider implements vscode.FileDecorationProvider 
         }
 
         if (changedUris.length > 0) {
+            logger.trace('Decoration changes fired for', changedUris.length, 'URIs');
             this._onDidChangeFileDecorations.fire(changedUris);
         }
     }

@@ -1,5 +1,6 @@
 export { getGitAPI, getGitRepository } from './gitApi';
 export { initLocalization, l10n } from './l10n';
+export { logger } from './logger';
 export {
     DIFF_BADGE_SUFFIX,
     DisplayMode,

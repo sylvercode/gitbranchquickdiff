@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { API } from '../externals/git';
 import { getCurrentMultiRepoProvider, getRegisteredGitApi } from '../quickdiff';
-import { clearTagCache, ExtendedStatus, getCurrentRef, l10n } from '../utils';
+import { clearTagCache, ExtendedStatus, getCurrentRef, l10n, logger } from '../utils';
 import { ChangedFile, DirectoryNode, openChange, RepositoryNode } from '../views';
 
 type SerializableChangedFile = ChangedFile | {
@@ -13,6 +13,7 @@ type SerializableChangedFile = ChangedFile | {
 };
 
 export function refreshChanges(repoNode?: RepositoryNode) {
+    logger.debug('Refreshing changes');
     clearTagCache();
 
     const currentMultiRepoProvider = getCurrentMultiRepoProvider();
@@ -28,6 +29,7 @@ export function refreshChanges(repoNode?: RepositoryNode) {
 }
 
 export async function openChangeCommand(context: vscode.ExtensionContext, fileItem: SerializableChangedFile) {
+    logger.debug('Opening change for:', fileItem.resourceUri.fsPath);
     const gitAPI = getRegisteredGitApi();
     if (!gitAPI) {
         vscode.window.showErrorMessage(l10n('error.gitExtensionNotFound'));
@@ -43,6 +45,7 @@ export async function openChangeCommand(context: vscode.ExtensionContext, fileIt
 }
 
 export async function openFileCommand(context: vscode.ExtensionContext, fileItem: SerializableChangedFile) {
+    logger.debug('Opening file:', fileItem.resourceUri.fsPath);
     const resourceUri = fileItem.resourceUri;
     const status = fileItem.status;
     const existsInRef = fileItem.existsInRef ?? true;
@@ -109,6 +112,7 @@ function buildChangesArray(files: ChangedFile[], gitApi: API, ref: string): [vsc
 }
 
 export async function openDirectoryChangesCommand(context: vscode.ExtensionContext, directoryNode: unknown) {
+    logger.debug('Opening directory changes');
     const gitAPI = getRegisteredGitApi();
     const currentMultiRepoProvider = getCurrentMultiRepoProvider();
     if (!gitAPI || !currentMultiRepoProvider || !(directoryNode instanceof DirectoryNode) || !directoryNode.resourceUri) {
@@ -145,6 +149,7 @@ export async function openDirectoryChangesCommand(context: vscode.ExtensionConte
 }
 
 export async function openAllChangesCommand(context: vscode.ExtensionContext, repoNode?: RepositoryNode) {
+    logger.debug('Opening all changes');
     const gitAPI = getRegisteredGitApi();
     const currentMultiRepoProvider = getCurrentMultiRepoProvider();
     if (!gitAPI || !currentMultiRepoProvider) {
