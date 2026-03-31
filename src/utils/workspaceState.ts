@@ -24,6 +24,11 @@ export const DEFAULT_DISPLAY_MODE = 'list';
 export const DEFAULT_DEFAULT_ACTION = 'openChanges';
 export const DEFAULT_SUBMODULE_DISPLAY = 'standalone';
 
+export function getConfigDefaultRef(): string {
+    return vscode.workspace.getConfiguration(EXTENSION_NAME)
+        .get<string>(REF_CONFIG_NAME) ?? DEFAULT_REF;
+}
+
 export function getRawRef(context: vscode.ExtensionContext, repository: Repository): string {
     const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS);
     const repoKey = repository.rootUri.fsPath;
@@ -32,8 +37,15 @@ export function getRawRef(context: vscode.ExtensionContext, repository: Reposito
         return refsMap[repoKey];
     }
 
-    return vscode.workspace.getConfiguration(EXTENSION_NAME)
-        .get<string>(REF_CONFIG_NAME) ?? DEFAULT_REF;
+    return getConfigDefaultRef();
+}
+
+export async function clearRepoRef(context: vscode.ExtensionContext, repository: Repository): Promise<void> {
+    const refsMap = context.workspaceState.get<Record<string, string>>(WORKSPACE_STATE_KEY_REFS);
+    if (refsMap !== undefined) {
+        delete refsMap[repository.rootUri.fsPath];
+        await context.workspaceState.update(WORKSPACE_STATE_KEY_REFS, Object.keys(refsMap).length > 0 ? refsMap : undefined);
+    }
 }
 
 export async function getCurrentRef(context: vscode.ExtensionContext, repository: Repository): Promise<string> {
