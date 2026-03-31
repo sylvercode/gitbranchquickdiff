@@ -80,7 +80,7 @@
     "views": {
       "scm": [
         {
-          "id": "gitbranchquickdiff.changes",
+          "id": "gitbranchquickdiff.changesView",
           "name": "%views.changes.name%",
           "icon": "$(git-branch)",
           "contextualTitle": "%views.changes.contextualTitle%"
@@ -178,99 +178,99 @@
       "view/title": [
         {
           "command": "gitbranchquickdiff.openAllChanges",
-          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && gitbranchquickdiff.enabled",
           "group": "navigation"
         },
         {
           "command": "gitbranchquickdiff.changerefPick",
-          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && gitbranchquickdiff.enabled",
           "group": "navigation"
         },
         {
           "command": "gitbranchquickdiff.refreshChanges",
-          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && gitbranchquickdiff.enabled",
           "group": "navigation"
         },
         {
           "command": "gitbranchquickdiff.viewAsList",
-          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.displayMode == tree && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && gitbranchquickdiff.displayMode == tree && gitbranchquickdiff.enabled",
           "group": "1_displaymode"
         },
         {
           "command": "gitbranchquickdiff.viewAsTree",
-          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.displayMode == list && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && gitbranchquickdiff.displayMode == list && gitbranchquickdiff.enabled",
           "group": "1_displaymode"
         },
         {
           "command": "gitbranchquickdiff.setDefaultActionOpenFile",
-          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.defaultAction != openFile && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && gitbranchquickdiff.defaultAction != openFile && gitbranchquickdiff.enabled",
           "group": "3_defaultaction@1"
         },
         {
           "command": "gitbranchquickdiff.setDefaultActionOpenChanges",
-          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.defaultAction != openChanges && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && gitbranchquickdiff.defaultAction != openChanges && gitbranchquickdiff.enabled",
           "group": "3_defaultaction@2"
         },
         {
           "command": "gitbranchquickdiff.resetRef",
-          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && gitbranchquickdiff.enabled",
           "group": "4_resetref"
         },
         {
           "command": "gitbranchquickdiff.toggleSubmoduleDisplay",
-          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && gitbranchquickdiff.enabled",
           "group": "2_submodule"
         },
         {
           "command": "gitbranchquickdiff.activate",
-          "when": "view == gitbranchquickdiff.changes && !gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && !gitbranchquickdiff.enabled",
           "group": "5_activation@1"
         },
         {
           "command": "gitbranchquickdiff.deactivate",
-          "when": "view == gitbranchquickdiff.changes && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && gitbranchquickdiff.enabled",
           "group": "5_activation@2"
         }
       ],
       "view/item/context": [
         {
           "command": "gitbranchquickdiff.openChange",
-          "when": "view == gitbranchquickdiff.changes && viewItem =~ /^changedFile:/ && gitbranchquickdiff.defaultAction != openChanges && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && viewItem =~ /^changedFile:/ && gitbranchquickdiff.defaultAction != openChanges && gitbranchquickdiff.enabled",
           "group": "inline@1"
         },
         {
           "command": "gitbranchquickdiff.openFile",
-          "when": "view == gitbranchquickdiff.changes && viewItem =~ /^changedFile:/ && gitbranchquickdiff.defaultAction != openFile && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && viewItem =~ /^changedFile:/ && gitbranchquickdiff.defaultAction != openFile && gitbranchquickdiff.enabled",
           "group": "inline@2"
         },
         {
           "command": "gitbranchquickdiff.openDirectoryChanges",
-          "when": "view == gitbranchquickdiff.changes && viewItem == directory && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && viewItem == directory && gitbranchquickdiff.enabled",
           "group": "inline@1"
         },
         {
           "command": "gitbranchquickdiff.restoreFile",
-          "when": "view == gitbranchquickdiff.changes && viewItem =~ /^changedFile:/ && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && viewItem =~ /^changedFile:/ && gitbranchquickdiff.enabled",
           "group": "inline@3"
         },
         {
           "command": "gitbranchquickdiff.restoreDirectory",
-          "when": "view == gitbranchquickdiff.changes && viewItem == directory && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && viewItem == directory && gitbranchquickdiff.enabled",
           "group": "inline@2"
         },
         {
           "command": "gitbranchquickdiff.changeref",
-          "when": "view == gitbranchquickdiff.changes && viewItem == repository && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && viewItem == repository && gitbranchquickdiff.enabled",
           "group": "inline@1"
         },
         {
           "command": "gitbranchquickdiff.openAllChanges",
-          "when": "view == gitbranchquickdiff.changes && viewItem == repository && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && viewItem == repository && gitbranchquickdiff.enabled",
           "group": "inline@2"
         },
         {
           "command": "gitbranchquickdiff.refreshChanges",
-          "when": "view == gitbranchquickdiff.changes && viewItem == repository && gitbranchquickdiff.enabled",
+          "when": "view == gitbranchquickdiff.changesView && viewItem == repository && gitbranchquickdiff.enabled",
           "group": "inline@3"
         }
       ]

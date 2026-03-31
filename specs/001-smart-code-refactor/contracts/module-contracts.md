@@ -92,6 +92,6 @@ The following `package.json` contributions are unchanged by this refactor:
 
 - **Commands**: All 18 `gitbranchquickdiff.*` commands remain registered with identical identifiers
 - **Configuration**: All 6 settings (`ref`, `enabled`, `displayMode`, `defaultAction`, `tagCacheTTL`, `submoduleDisplay`) remain unchanged
-- **Views**: `gitbranchquickdiff.changes` tree view remains registered
+- **Views**: `gitbranchquickdiff.changesView` tree view remains registered
 - **Menus**: All view/title, view/item/context, and commandPalette entries remain unchanged
 - **Activation**: `onStartupFinished` activation event unchanged
